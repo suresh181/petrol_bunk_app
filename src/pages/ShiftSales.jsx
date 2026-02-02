@@ -321,7 +321,7 @@ const ShiftSales = () => {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: '2rem' }}>
+            <div className="page-grid">
 
                 {/* LEFT COLUMN: The 3 Main Sections */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
@@ -330,7 +330,7 @@ const ShiftSales = () => {
                     <div className="card" style={{ borderLeft: '4px solid #3b82f6', position: 'relative' }}>
                         <div style={{ position: 'absolute', right: '10px', top: '10px', background: '#eff6ff', color: '#1d4ed8', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>PETROL</div>
                         <h3 style={{ color: '#1d4ed8', marginBottom: '1rem' }}>1. General Shift</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                        <div className="section-grid">
                             <div>
                                 <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
                                 <InputRow label="Opening Reading" val={generalShift.opening} setVal={v => setGeneralShift({ ...generalShift, opening: v })} />
@@ -362,7 +362,7 @@ const ShiftSales = () => {
                     <div className="card" style={{ borderLeft: '4px solid #1e40af', position: 'relative' }}>
                         <div style={{ position: 'absolute', right: '10px', top: '10px', background: '#eff6ff', color: '#1e3a8a', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>PETROL</div>
                         <h3 style={{ color: '#1e3a8a', marginBottom: '1rem' }}>2. Night Shift</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                        <div className="section-grid">
                             <div>
                                 <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
                                 <InputRow label="Opening Reading" val={nightShift.opening} setVal={v => setNightShift({ ...nightShift, opening: v })} />
@@ -394,7 +394,7 @@ const ShiftSales = () => {
                     <div className="card" style={{ borderLeft: '4px solid #f59e0b', position: 'relative' }}>
                         <div style={{ position: 'absolute', right: '10px', top: '10px', background: '#fffbeb', color: '#b45309', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>DIESEL</div>
                         <h3 style={{ color: '#d97706', marginBottom: '1rem' }}>3. Diesel (24 Hours)</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                        <div className="section-grid">
                             <div>
                                 <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
                                 <InputRow label="Yesterday Closing" val={dieselShift.opening} setVal={v => setDieselShift({ ...dieselShift, opening: v })} />

@@ -169,6 +169,96 @@
 
 .content-area {
     flex: 1;
-    padding: 2rem;
     overflow-y: auto;
+}
+
+/* Mobile Sidebar & Responsive */
+@media (max-width: 768px) {
+    .app-container {
+        position: relative;
+    }
+
+    .sidebar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        z-index: 50;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease-in-out;
+        width: 250px;
+        box-shadow: 4px 0 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 40;
+        display: none;
+    }
+
+    .overlay.open {
+        display: block;
+    }
+
+    .top-bar {
+        padding: 0 1rem;
+    }
+
+    .content-area {
+        padding: 1rem;
+    }
+}
+
+/* Helper for Shift Sales Mobile */
+.page-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 2rem;
+}
+
+@media (max-width: 768px) {
+    .page-grid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .section-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .mobile-menu-trigger {
+        display: flex;
+    }
+}
+
+/* Inner Card Grid */
+.section-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+}
+
+/* Mobile Visibility Helpers */
+.mobile-menu-trigger {
+    display: none;
+}
+
+.mobile-only {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .mobile-only {
+        display: block;
+    }
 }
