@@ -5,6 +5,21 @@ import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase'; // Import Supabase
 
+// Helper Input Component (Defined outside to prevent re-render focus loss)
+const InputRow = ({ label, val, setVal, readOnly = false }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+        <span style={{ fontSize: '0.9rem', color: '#64748b' }}>{label}</span>
+        <input
+            type="number"
+            className="input"
+            style={{ width: '120px', textAlign: 'right', background: readOnly ? '#f1f5f9' : '#fff' }}
+            value={val}
+            readOnly={readOnly}
+            onChange={e => !readOnly && setVal(e.target.value)}
+        />
+    </div>
+);
+
 const ShiftSales = () => {
     const { prices, nozzles, customers, loading } = useData();
     const { user } = useAuth(); // Get currently logged in user
@@ -118,20 +133,9 @@ const ShiftSales = () => {
 
 
     // --- HELPERS FOR UI ---
-    // Helper Input Component
-    const InputRow = ({ label, val, setVal, readOnly = false }) => (
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.9rem', color: '#64748b' }}>{label}</span>
-            <input
-                type="number"
-                className="input"
-                style={{ width: '120px', textAlign: 'right', background: readOnly ? '#f1f5f9' : '#fff' }}
-                value={val}
-                readOnly={readOnly}
-                onChange={e => !readOnly && setVal(e.target.value)}
-            />
-        </div>
-    );
+    // --- HELPERS FOR UI ---
+    // (InputRow moved outside)
+
 
     // Credit Logic (Updated to be simple list)
     // Note: We are not auto-syncing credits to the 3-shift inputs directly to avoid complexity loop.
