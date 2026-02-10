@@ -3,6 +3,8 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import MainLayout from './components/Layout/MainLayout';
 import { useAuth } from './context/AuthContext';
 
+import ErrorBoundary from './components/ErrorBoundary';
+
 function App() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -14,12 +16,18 @@ function App() {
     }
   }, [user, navigate, location]);
 
-  if (!user) return <Outlet />;
+  if (!user) return (
+    <ErrorBoundary>
+      <Outlet />
+    </ErrorBoundary>
+  );
 
   return (
-    <MainLayout>
-      <Outlet />
-    </MainLayout>
+    <ErrorBoundary>
+      <MainLayout>
+        <Outlet />
+      </MainLayout>
+    </ErrorBoundary>
   );
 }
 

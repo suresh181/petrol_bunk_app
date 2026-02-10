@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, Type } from 'lucide-react';
+import { Moon, Sun, Type, Trash2, AlertTriangle } from 'lucide-react';
+import { supabase } from '../services/supabase';
 
 const Settings = () => {
     const [darkMode, setDarkMode] = useState(false);
@@ -52,6 +53,36 @@ const Settings = () => {
         // Assuming we update root font size or body
         document.body.style.fontSize = size;
         localStorage.setItem('fontSize', size);
+    };
+
+    // Handle Reset Data
+    const handleResetData = async () => {
+        if (confirm("CRITICAL WARNING: This will PERMANENTLY DELETE all Sales Records and Credit Transactions. This action cannot be undone. Are you sure?")) {
+            try {
+                // Delete all rows from sales_records
+                const { error: salesError } = await supabase
+                    .from('sales_records')
+                    .delete()
+                    .neq('id', '00000000-0000-0000-0000-000000000000'); // Valid UUID check to match all
+
+                if (salesError) throw salesError;
+
+                // Delete all rows from credit_transactions
+                const { error: creditError } = await supabase
+                    .from('credit_transactions')
+                    .delete()
+                    .neq('id', '00000000-0000-0000-0000-000000000000');
+
+                if (creditError) throw creditError;
+
+                alert("All transactional data (Sales & Credits) has been successfully reset.");
+                window.location.reload();
+
+            } catch (error) {
+                console.error("Reset failed:", error);
+                alert("Failed to reset data: " + error.message);
+            }
+        }
     };
 
     return (
@@ -108,6 +139,41 @@ const Settings = () => {
                     </div>
                 </div>
 
+            </div>
+
+            {/* Data Management Section */}
+            <div className="card" style={{ marginTop: '2rem', borderColor: '#ef4444' }}>
+                <h3 style={{ marginBottom: '1.5rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <AlertTriangle size={20} /> Data Management
+                </h3>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <div style={{ fontWeight: '600', color: '#ef4444' }}>Reset All Data</div>
+                        <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                            Permanently delete all Opening/Closing records, Credit Ledger, and Transactions.
+                            <br />
+                            <b>Note:</b> This does not delete Customers, Prices, or Nozzle Configurations.
+                        </div>
+                    </div>
+                    <button
+                        className="btn"
+                        onClick={handleResetData}
+                        style={{
+                            backgroundColor: '#fee2e2',
+                            color: '#dc2626',
+                            border: '1px solid #ef4444',
+                            fontWeight: 'bold',
+                            padding: '0.75rem 1.5rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <Trash2 size={16} style={{ marginRight: '8px' }} />
+                        Reset Data
+                    </button>
+                </div>
             </div>
 
             <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>

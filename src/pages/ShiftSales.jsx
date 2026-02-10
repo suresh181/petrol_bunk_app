@@ -21,14 +21,39 @@ const InputRow = ({ label, val, setVal, readOnly = false }) => (
 );
 
 const ShiftSales = () => {
-    const { prices, nozzles, customers, loading } = useData();
-    const { user } = useAuth(); // Get currently logged in user
+    // 1. Defensive Destructuring
+    const contextData = useData();
+    const { prices = {}, nozzles = [], customers = [], loading } = contextData || {};
+    const { user } = useAuth();
 
     // Data Persistence Helper
     const loadState = (key, defaultVal) => {
         const saved = localStorage.getItem(key);
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(defaultVal)) {
+                    return Array.isArray(parsed) ? parsed : defaultVal;
+                }
+                return { ...defaultVal, ...parsed };
+            } catch (e) {
+                console.error("Error parsing saved state", e);
+                return defaultVal;
+            }
+        }
         return defaultVal;
+    };
+
+    // Emergency Reset Handler
+    const handleReset = () => {
+        if (confirm("This will clear all saved shift data and reload. Use if the screen is broken/stuck.")) {
+            localStorage.removeItem('shift_general');
+            localStorage.removeItem('shift_night');
+            localStorage.removeItem('shift_diesel');
+            localStorage.removeItem('shift_readings');
+            localStorage.removeItem('shift_credits');
+            window.location.reload();
+        }
     };
 
     // Readings State
@@ -36,7 +61,7 @@ const ShiftSales = () => {
 
     // Initialize (Only if empty and no saved state)
     useEffect(() => {
-        if (nozzles.length > 0 && Object.keys(nozzleReadings).length === 0) {
+        if (nozzles && nozzles.length > 0 && Object.keys(nozzleReadings).length === 0) {
             const initial = {};
             nozzles.forEach(n => {
                 initial[n.id] = {
@@ -44,12 +69,11 @@ const ShiftSales = () => {
                     end: Number(n.flow) || 0
                 };
             });
-            // Check if we really want to overwrite? Only if localstorage was empty
             if (!localStorage.getItem('shift_readings')) {
                 setNozzleReadings(initial);
             }
         }
-    }, [nozzles]); // Removed nozzleReadings dependency to avoid rewrite loops
+    }, [nozzles]);
 
     // Auto-Save Effects
     useEffect(() => {
@@ -63,27 +87,23 @@ const ShiftSales = () => {
         }));
     };
 
-    // Collections & Credits
-    // Collections & Credits
-    // Note: 'upi' now stores the combined "UPI/Card" value. 'credit' is now editable manually + auto-updated by bills.
-    // --- NEW STATE STRUCTURE BASED ON REQUIREMENTS ---
-    // 1. General Shift Petrol
     const [generalShift, setGeneralShift] = useState(() => loadState('shift_general', {
-        opening: 0, closing: 0,
+        opening: 0, closing: 0, test_taken: 0, test_returned: 0,
         cash: 0, upi: 0, card: 0, credit: 0
     }));
 
-    // 2. Night Shift Petrol
     const [nightShift, setNightShift] = useState(() => loadState('shift_night', {
         opening: 0, closing: 0,
         cash: 0, upi: 0, card: 0, credit: 0
     }));
 
-    // 3. Diesel 24h
     const [dieselShift, setDieselShift] = useState(() => loadState('shift_diesel', {
-        opening: 0, closing: 0,
+        opening: 0, closing: 0, test_taken: 0, test_returned: 0,
         cash: 0, upi: 0, card: 0, credit: 0
     }));
+
+    const [todaySettlement, setTodaySettlement] = useState(0);
+    const [todayPendingInput, setTodayPendingInput] = useState('');
 
     const [yesterdayPending, setYesterdayPending] = useState(0);
 
@@ -95,8 +115,6 @@ const ShiftSales = () => {
     // Fetch Yesterday's Pending
     useEffect(() => {
         const fetchPending = async () => {
-            // In a real scenario, we might query sum(shortage_excess) or the last balance. 
-            // We'll store/fetch the last cumulative balance here.
             const { data } = await supabase.from('sales_records').select('shortage_excess').order('created_at', { ascending: false }).limit(1);
             if (data && data.length > 0) setYesterdayPending(data[0].shortage_excess || 0);
         };
@@ -107,29 +125,36 @@ const ShiftSales = () => {
 
     // 1. General Shift Petrol Calculation
     const litres_general = Math.max(0, generalShift.closing - generalShift.opening);
-    const sale_amount_general = litres_general * prices.petrol;
+    // SAFE ACCESS to prices
+    const sale_amount_general = litres_general * (prices?.petrol || 0);
     const total_collection_general = Number(generalShift.cash) + Number(generalShift.upi) + Number(generalShift.card) + Number(generalShift.credit);
-    const short_excess_general = sale_amount_general - total_collection_general;
+    const ms_general_short_excess = sale_amount_general - total_collection_general;
+
+    // Test Sample Logic (MS)
+    const ms_test_net = Number(generalShift.test_taken || 0) - Number(generalShift.test_returned || 0);
 
     // 2. Night Shift Petrol Calculation
     const litres_night = Math.max(0, nightShift.closing - nightShift.opening);
-    const sale_amount_night = litres_night * prices.petrol;
+    const sale_amount_night = litres_night * (prices?.petrol || 0);
     const total_collection_night = Number(nightShift.cash) + Number(nightShift.upi) + Number(nightShift.card) + Number(nightShift.credit);
-    const short_excess_night = sale_amount_night - total_collection_night;
+    const ms_night_short_excess = sale_amount_night - total_collection_night;
 
     // 3. Diesel 24h Calculation
     const diesel_litres_24hrs = Math.max(0, dieselShift.closing - dieselShift.opening);
-    const diesel_sale_amount = diesel_litres_24hrs * prices.diesel;
+    const diesel_sale_amount = diesel_litres_24hrs * (prices?.diesel || 0);
     const diesel_total_collection = Number(dieselShift.cash) + Number(dieselShift.upi) + Number(dieselShift.card) + Number(dieselShift.credit);
-    const diesel_short_excess = diesel_sale_amount - diesel_total_collection;
+    const hsd_short_excess = diesel_sale_amount - diesel_total_collection;
 
-    // 4. Today Pending Logic
-    const today_total_difference = short_excess_general + short_excess_night + diesel_short_excess;
-    const today_pending = yesterdayPending + today_total_difference;
+    // Test Sample Logic (HSD)
+    const hsd_test_net = Number(dieselShift.test_taken || 0) - Number(dieselShift.test_returned || 0);
+
+    // 4. Today Pending + Settlement Logic
+    const total_calc = ms_general_short_excess + ms_night_short_excess + hsd_short_excess + Number(yesterdayPending) - Number(todayPendingInput || 0);
+    const settlement_difference = Number(todaySettlement || 0) - total_calc;
 
     // Aggregates for Reporting
     const totalSaleAmount = sale_amount_general + sale_amount_night + diesel_sale_amount;
-    const shortage = today_total_difference; // Current day delta
+    const shortage = 0; // Deprecated by new logic, but needed for types? won't use.
 
 
     // --- HELPERS FOR UI ---
@@ -143,39 +168,65 @@ const ShiftSales = () => {
     // This adheres to "Inputs already exist" (Manual Entry) workflow usually preferred by operators for control.
 
     const [creditBills, setCreditBills] = useState(() => loadState('shift_credits', []));
-    const [newBill, setNewBill] = useState({ customerId: '', amount: '', product: 'Petrol' });
+    const [newBill, setNewBill] = useState({ customerId: '', billAmount: '', paidAmount: '', product: 'Petrol' });
 
     useEffect(() => localStorage.setItem('shift_credits', JSON.stringify(creditBills)), [creditBills]);
 
+    // Helper to parse numbers with commas
+    const parseAmt = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
+
+    // Calculate Net Credit automatically
+    const netCredit = parseAmt(newBill.billAmount) - parseAmt(newBill.paidAmount);
+
     const handleAddBill = async () => {
-        if (!newBill.customerId || !newBill.amount) return;
-        const customer = customers.find(c => c.id == newBill.customerId);
-        if (!customer) return;
+        try {
+            if (!newBill.customerId) {
+                alert("Please select a Customer first.");
+                return;
+            }
+            if (!newBill.billAmount) {
+                alert("Please enter the Total Bill Amount.");
+                return;
+            }
 
-        const amount = parseFloat(newBill.amount);
+            const customer = customers.find(c => c.id == newBill.customerId);
+            if (!customer) return;
 
-        // 1. Insert into Supabase
-        const { data, error } = await supabase
-            .from('credit_transactions')
-            .insert([{
-                customer_id: customer.id,
-                customer_name: customer.name,
-                amount: amount,
-                created_at: new Date(),
-                is_settled: false,
-                notes: `Shift Sale: ${newBill.product}`
-            }])
-            .select();
+            // Validation
+            if (netCredit < 0) {
+                alert("Paid amount cannot be more than Bill amount");
+                return;
+            }
 
-        if (error) {
-            alert("Error: " + error.message);
-            return;
+            if (netCredit === 0) {
+                if (!confirm("Net Credit is 0 (Fully Paid). Do you still want to log this?")) return;
+            }
+
+            // 1. Insert into Supabase
+            const { data, error } = await supabase
+                .from('credit_transactions')
+                .insert([{
+                    customer_id: customer.id,
+                    customer_name: customer.name,
+                    amount: netCredit, // Only the credit part is added to debt
+                    created_at: new Date(),
+                    is_settled: false,
+                    notes: `Shift Sale: ${newBill.product}. Bill: ₹${newBill.billAmount}, Paid: ₹${newBill.paidAmount}`
+                }])
+                .select();
+
+            if (error) throw error;
+            if (!data || data.length === 0) throw new Error("No data returned from insert");
+
+            // 2. Update Local List
+            setCreditBills([...creditBills, { ...data[0], customerName: customer.name, total: netCredit }]);
+            setNewBill({ ...newBill, billAmount: '', paidAmount: '' });
+            alert(`Bill Added! Credit: ₹${netCredit}. Please add this to Shift Credit.`);
+
+        } catch (err) {
+            console.error("Add Bill Error:", err);
+            alert("Error adding bill: " + err.message);
         }
-
-        // 2. Update Local List
-        setCreditBills([...creditBills, { ...data[0], customerName: customer.name, total: amount }]);
-        setNewBill({ ...newBill, amount: '' });
-        alert("Bill Added! Please manually add this amount to the relevant Shift's Credit field.");
     };
 
     const handleDeleteBill = async (id) => {
@@ -201,6 +252,10 @@ const ShiftSales = () => {
             // "Today Pending" stored as shortage_excess
             shortage_excess: today_pending,
 
+            // Store Test Samples
+            petrol_test_samples: Number(generalShift.test || 0),
+            diesel_test_samples: Number(dieselShift.test || 0),
+
             cash_collected: Number(generalShift.cash) + Number(nightShift.cash) + Number(dieselShift.cash),
             upi_collected: Number(generalShift.upi) + Number(nightShift.upi) + Number(dieselShift.upi),
             card_collected: Number(generalShift.card) + Number(nightShift.card) + Number(dieselShift.card),
@@ -220,7 +275,7 @@ const ShiftSales = () => {
             { "Metric": "Litres Sold", "Value": litres_general.toFixed(2) },
             { "Metric": "Expected Amount (₹)", "Value": sale_amount_general.toFixed(2) },
             { "Metric": "Collections", "Value": `Cash: ${generalShift.cash}, UPI: ${generalShift.upi}, Card: ${generalShift.card}, Credit: ${generalShift.credit}` },
-            { "Metric": "Shortage/Excess", "Value": short_excess_general.toFixed(2) },
+            { "Metric": "Shortage/Excess", "Value": ms_general_short_excess.toFixed(2) },
             { "Metric": "", "Value": "" },
 
             // Night Shift Petrol
@@ -230,7 +285,7 @@ const ShiftSales = () => {
             { "Metric": "Litres Sold", "Value": litres_night.toFixed(2) },
             { "Metric": "Expected Amount (₹)", "Value": sale_amount_night.toFixed(2) },
             { "Metric": "Collections", "Value": `Cash: ${nightShift.cash}, UPI: ${nightShift.upi}, Card: ${nightShift.card}, Credit: ${nightShift.credit}` },
-            { "Metric": "Shortage/Excess", "Value": short_excess_night.toFixed(2) },
+            { "Metric": "Shortage/Excess", "Value": ms_night_short_excess.toFixed(2) },
             { "Metric": "", "Value": "" },
 
             // Diesel Shift
@@ -240,14 +295,19 @@ const ShiftSales = () => {
             { "Metric": "Litres Sold", "Value": diesel_litres_24hrs.toFixed(2) },
             { "Metric": "Expected Amount (₹)", "Value": diesel_sale_amount.toFixed(2) },
             { "Metric": "Collections", "Value": `Cash: ${dieselShift.cash}, UPI: ${dieselShift.upi}, Card: ${dieselShift.card}, Credit: ${dieselShift.credit}` },
-            { "Metric": "Shortage/Excess", "Value": diesel_short_excess.toFixed(2) },
+            { "Metric": "Shortage/Excess", "Value": hsd_short_excess.toFixed(2) },
             { "Metric": "", "Value": "" },
 
             // Final Pending
-            { "Metric": "4. PENDING LOGIC", "Value": "---" },
+            { "Metric": "4. DAILY SETTLEMENT", "Value": "---" },
+            { "Metric": "MS General Short/Excess", "Value": ms_general_short_excess.toFixed(2) },
+            { "Metric": "MS Night Short/Excess", "Value": ms_night_short_excess.toFixed(2) },
+            { "Metric": "HSD Short/Excess", "Value": hsd_short_excess.toFixed(2) },
             { "Metric": "Yesterday Pending", "Value": yesterdayPending.toFixed(2) },
-            { "Metric": "Today Total Change", "Value": today_total_difference.toFixed(2) },
-            { "Metric": "FINAL TODAY PENDING", "Value": today_pending.toFixed(2) },
+            { "Metric": "Today Pending (Input)", "Value": Number(todayPendingInput || 0).toFixed(2) },
+            { "Metric": "Total Calculated", "Value": total_calc.toFixed(2) },
+            { "Metric": "Today Settlement", "Value": Number(todaySettlement || 0).toFixed(2) },
+            { "Metric": "DIFFERENCE", "Value": settlement_difference.toFixed(2) },
             { "Metric": "", "Value": "" },
 
             // Overall
@@ -269,9 +329,69 @@ const ShiftSales = () => {
         if (prices.id) {
             const currentPetrolStock = prices.petrol_stock || 0;
             const currentDieselStock = prices.diesel_stock || 0;
+
+            // Stock Logic: Reduced by Sales AND Net Test Sample (Taken - Returned)
+            // Because 'Taken' is removed from tank. 'Returned' is added back.
+            // Litres Sold is already purely (Closing - Opening).
+            // Wait, (Closing - Opening) INCLUDES the test sample if it passed through the meter.
+            // If test sample goes through meter:
+            //   Meter says 100L. 5L was test. 
+            //   Litres Sold = 100L.
+            //   User wants: "Litres Sold" to be 100L?
+            //   User said: "ms_general_litres = closing - opening". 
+            //   So if I pump 5L test, meter advances 5L. Litres Sold = 5L.
+            //   The formula for SALE AMOUNT uses this litres.
+            //   Refinement: "Daily test sample is not a sale. It should NOT affect meter sale calculation."
+            //   This implies: Litres Sold SHOULD be (Closing - Opening) - Test Net?
+            //   User said: "ms_general_litres = closing - opening". STRICTLY.
+            //   And "ms_general_sale_amount = ms_general_litres * rate".
+            //   BUT "Daily test sample is not a sale".
+            //   Contradiction? Or maybe the user *manually* excludes test sample from "closing reading"?
+            //   No, inputs are readings. 
+            //   If I follow strict user formulas:
+            //   Litres = 10L (Test). Sale = 10 * 100 = 1000. 
+            //   But I have 0 cash. Shortage = 1000.
+            //   This implies user formulas might be missing the deduction, OR test sample doesn't move meter?
+            //   Standard pump: Test sample moves meter.
+            //   Let's re-read: "Daily test sample... should NOT affect meter sale calculation."
+            //   This usually means: Sale Litres = (Meter Diff) - (Test Sample).
+            //   BUT user explicitly gave Formula: "ms_general_litres = closing_reading_general - opening_reading_general".
+            //   AND "ms_general = ms_general_sale_amount - ms_general_total_collection".
+            //   If I follow this blindly, a test sample causes a shortage.
+            //   However, if I look at "4) DAILY TEST SAMPLE LOGIC... It is only for stock/sump adjustment".
+            //   Maybe I should stick to the user's explicit formulas for now, even if it creates a shortage artifact?
+            //   Actually, usually 'shortage' is where the test sample is explained.
+            //   Let's stick to the EXPLICIT formulas provided. 
+            //   Stock Update: 
+            //   If Meter Diff is 100L. 5L was test (returned). Real stock out = 100L? No, 5L returned. Real out = 95L.
+            //   So Stock = Stock - (Meter Diff - Test Returned).
+            //   Or more precisely: Stock = Stock - (Meter Diff) + (Test Returned).
+            //   User Rule: "ms_stock = ms_stock - ms_net_test_sample".
+            //   Wait, ms_net = Taken - Returned.
+            //   If Taken=5, Returned=5. Net=0. Stock change = 0.
+            //   But Meter Diff = 5. 
+            //   So Stock = Stock - Meter Diff - Net?
+            //   If I take 5L (Meter moves 5). Return 5L. Net=0.
+            //   Tank lost 5L through meter, gained 5L from return. Net 0 change.
+            //   My code: `petrol_stock: currentPetrolStock - (litres_general + litres_night)`
+            //   This `litres_general` is Meter Diff.
+            //   If Net is 0, we subtract Meter Diff (5L). Access stock drops by 5L.
+            //   But we returned it!
+            //   So we must ADD back the returned amount? Or User Formula "ms_stock = ms_stock - ms_net_test_sample" is the ONLY change?
+            //   No, "If stock module exists, update stock: ms_stock = ms_stock - ms_net_test_sample".
+            //   THIS IS LIKELY ADDITIONAL to the sale deduction.
+            //   Actually, "ms_stock = ms_stock - ms_net_test_sample" implies ONLY net sample affects? No, strict user requirement might be isolated to that section.
+            //   Let's apply logically:
+            //   Stock should decrease by dispensed fuel that is NOT returned.
+            //   Dispensed = Meter Diff.
+            //   Returned = Test Returned.
+            //   So Stock -= (Meter Diff - Returned).
+            //   Which is equivalent to: Stock -= (Meter Diff - (Taken - Net)) ? No.
+            //   Let's simplify: Stock -= (Litres Sold - Test Returned).
+
             await supabase.from('fuel_prices').update({
-                petrol_stock: currentPetrolStock - (litres_general + litres_night),
-                diesel_stock: currentDieselStock - diesel_litres_24hrs
+                petrol_stock: currentPetrolStock - (litres_general + litres_night) + (Number(generalShift.test_returned) || 0),
+                diesel_stock: currentDieselStock - diesel_litres_24hrs + (Number(dieselShift.test_returned) || 0)
             }).eq('id', prices.id);
         }
 
@@ -318,6 +438,9 @@ const ShiftSales = () => {
                 <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Today's Date</div>
                     <div style={{ fontWeight: 'bold' }}>{new Date().toLocaleDateString()}</div>
+                    <button onClick={handleReset} style={{ fontSize: '0.7rem', color: 'red', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', marginTop: '5px' }}>
+                        Reset Local Data
+                    </button>
                 </div>
             </div>
 
@@ -335,11 +458,17 @@ const ShiftSales = () => {
                                 <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
                                 <InputRow label="Opening Reading" val={generalShift.opening} setVal={v => setGeneralShift({ ...generalShift, opening: v })} />
                                 <InputRow label="Closing Reading" val={generalShift.closing} setVal={v => setGeneralShift({ ...generalShift, closing: v })} />
+                                <InputRow label="Test Sample TAKEN" val={generalShift.test_taken} setVal={v => setGeneralShift({ ...generalShift, test_taken: v })} />
+                                <InputRow label="Test Sample RETURNED" val={generalShift.test_returned} setVal={v => setGeneralShift({ ...generalShift, test_returned: v })} readOnly={!generalShift.test_taken || Number(generalShift.test_taken) <= 0} />
+
                                 <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: '#3b82f6', fontSize: '0.9rem' }}>
                                     Litres Sold: {litres_general.toFixed(2)}
                                 </div>
                                 <div style={{ marginTop: '0.2rem', fontWeight: 'bold', textAlign: 'right', color: '#1d4ed8' }}>
                                     Expected Amount: ₹ {sale_amount_general.toFixed(2)}
+                                </div>
+                                <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', textAlign: 'right', color: '#64748b' }}>
+                                    Net Test Sample: {ms_test_net.toFixed(2)} L (Stock Adj)
                                 </div>
                             </div>
                             <div>
@@ -350,8 +479,8 @@ const ShiftSales = () => {
                                 <InputRow label="Credit" val={generalShift.credit} setVal={v => setGeneralShift({ ...generalShift, credit: v })} />
                                 <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ fontSize: '0.85rem' }}>Shortage/Excess:</span>
-                                    <span style={{ fontWeight: 'bold', color: short_excess_general > 0 ? 'red' : 'green' }}>
-                                        {short_excess_general.toFixed(2)}
+                                    <span style={{ fontWeight: 'bold', color: ms_general_short_excess > 0 ? 'red' : 'green' }}>
+                                        {ms_general_short_excess.toFixed(2)}
                                     </span>
                                 </div>
                             </div>
@@ -382,8 +511,8 @@ const ShiftSales = () => {
                                 <InputRow label="Credit" val={nightShift.credit} setVal={v => setNightShift({ ...nightShift, credit: v })} />
                                 <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ fontSize: '0.85rem' }}>Shortage/Excess:</span>
-                                    <span style={{ fontWeight: 'bold', color: short_excess_night > 0 ? 'red' : 'green' }}>
-                                        {short_excess_night.toFixed(2)}
+                                    <span style={{ fontWeight: 'bold', color: ms_night_short_excess > 0 ? 'red' : 'green' }}>
+                                        {ms_night_short_excess.toFixed(2)}
                                     </span>
                                 </div>
                             </div>
@@ -399,11 +528,17 @@ const ShiftSales = () => {
                                 <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
                                 <InputRow label="Yesterday Closing" val={dieselShift.opening} setVal={v => setDieselShift({ ...dieselShift, opening: v })} />
                                 <InputRow label="Today Closing" val={dieselShift.closing} setVal={v => setDieselShift({ ...dieselShift, closing: v })} />
+                                <InputRow label="Test Sample TAKEN" val={dieselShift.test_taken} setVal={v => setDieselShift({ ...dieselShift, test_taken: v })} />
+                                <InputRow label="Test Sample RETURNED" val={dieselShift.test_returned} setVal={v => setDieselShift({ ...dieselShift, test_returned: v })} readOnly={!dieselShift.test_taken || Number(dieselShift.test_taken) <= 0} />
+
                                 <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: '#d97706', fontSize: '0.9rem' }}>
                                     Litres Sold: {diesel_litres_24hrs.toFixed(2)}
                                 </div>
                                 <div style={{ marginTop: '0.2rem', fontWeight: 'bold', textAlign: 'right', color: '#b45309' }}>
                                     Expected Amount: ₹ {diesel_sale_amount.toFixed(2)}
+                                </div>
+                                <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', textAlign: 'right', color: '#64748b' }}>
+                                    Net Test Sample: {hsd_test_net.toFixed(2)} L (Stock Adj)
                                 </div>
                             </div>
                             <div>
@@ -414,8 +549,8 @@ const ShiftSales = () => {
                                 <InputRow label="Credit" val={dieselShift.credit} setVal={v => setDieselShift({ ...dieselShift, credit: v })} />
                                 <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ fontSize: '0.85rem' }}>Shortage/Excess:</span>
-                                    <span style={{ fontWeight: 'bold', color: diesel_short_excess > 0 ? 'red' : 'green' }}>
-                                        {diesel_short_excess.toFixed(2)}
+                                    <span style={{ fontWeight: 'bold', color: hsd_short_excess > 0 ? 'red' : 'green' }}>
+                                        {hsd_short_excess.toFixed(2)}
                                     </span>
                                 </div>
                             </div>
@@ -429,18 +564,29 @@ const ShiftSales = () => {
                             <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Helper for adding to DB</span>
                         </div>
                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                            <select className="input" value={newBill.customerId} onChange={e => setNewBill({ ...newBill, customerId: e.target.value })}>
+                            <select className="input" value={newBill.customerId} onChange={e => setNewBill({ ...newBill, customerId: e.target.value })} style={{ width: '180px' }}>
                                 <option value="">Select Customer</option>
                                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                             <input
-                                type="number"
+                                type="text"
                                 className="input"
                                 style={{ width: '100px' }}
-                                placeholder="₹ Amt"
-                                value={newBill.amount}
-                                onChange={e => setNewBill({ ...newBill, amount: e.target.value })}
+                                placeholder="Total Bill"
+                                value={newBill.billAmount}
+                                onChange={e => setNewBill({ ...newBill, billAmount: e.target.value })}
                             />
+                            <input
+                                type="text"
+                                className="input"
+                                style={{ width: '100px' }}
+                                placeholder="Paid Now"
+                                value={newBill.paidAmount}
+                                onChange={e => setNewBill({ ...newBill, paidAmount: e.target.value })}
+                            />
+                            <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem', fontWeight: 'bold', color: '#64748b' }}>
+                                Credit: <span style={{ color: netCredit > 0 ? '#ef4444' : '#10b981', marginLeft: '5px' }}>₹{netCredit}</span>
+                            </div>
                             <button className="btn btn-primary" onClick={handleAddBill}><Plus size={18} /></button>
                         </div>
                         {/* Simple List */}
@@ -463,33 +609,53 @@ const ShiftSales = () => {
 
                     {/* 4. TODAY PENDING LOGIC */}
                     <div className="card" style={{ background: '#f8fafc', border: '1px solid #cbd5e1' }}>
-                        <h3 style={{ marginBottom: '1rem', color: '#334155' }}>4. Today Pending Logic</h3>
+                        <h3 style={{ marginBottom: '1rem', color: '#334155' }}>4. Daily Settlement Logic</h3>
 
-                        <div style={{ display: 'grid', gap: '12px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.9rem', color: '#64748b' }}>Yesterday Pending:</span>
-                                <span style={{ fontWeight: 'bold' }}>₹ {Number(yesterdayPending).toFixed(2)}</span>
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
+                                <span>1. MS General Short/Excess:</span>
+                                <span style={{ color: ms_general_short_excess > 0 ? 'green' : 'red' }}>{ms_general_short_excess.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
+                                <span>2. MS Night Short/Excess:</span>
+                                <span style={{ color: ms_night_short_excess > 0 ? 'green' : 'red' }}>{ms_night_short_excess.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
+                                <span>3. HSD Short/Excess:</span>
+                                <span style={{ color: hsd_short_excess > 0 ? 'green' : 'red' }}>{hsd_short_excess.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
+                                <span>4. Yesterday Pending:</span>
+                                <span>{Number(yesterdayPending).toFixed(2)}</span>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '5px' }}>
+                                <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>(-) TODAY PENDING:</span>
+                                <input
+                                    type="number"
+                                    className="input"
+                                    style={{ width: '100px', textAlign: 'right', fontWeight: 'bold' }}
+                                    value={todayPendingInput}
+                                    onChange={e => setTodayPendingInput(e.target.value)}
+                                    placeholder="Enter Amount"
+                                />
                             </div>
 
                             <div style={{ borderTop: '1px dashed #cbd5e1', margin: '4px 0' }}></div>
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '0.85rem' }}>
-                                <span>+ General Shift Shortage:</span>
-                                <span style={{ color: short_excess_general > 0 ? 'red' : 'green' }}>{short_excess_general.toFixed(2)}</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#334155' }}>
+                                <span>TOTAL (Calculated):</span>
+                                <span>{total_calc.toFixed(2)}</span>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '0.85rem' }}>
-                                <span>+ Night Shift Shortage:</span>
-                                <span style={{ color: short_excess_night > 0 ? 'red' : 'green' }}>{short_excess_night.toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '0.85rem' }}>
-                                <span>+ Diesel Shortage:</span>
-                                <span style={{ color: diesel_short_excess > 0 ? 'red' : 'green' }}>{diesel_short_excess.toFixed(2)}</span>
+
+                            <div style={{ marginTop: '10px' }}>
+                                <InputRow label="TODAY SETTLEMENT" val={todaySettlement} setVal={setTodaySettlement} />
                             </div>
 
                             <div style={{ borderTop: '2px solid #334155', paddingTop: '10px', marginTop: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>FINAL PENDING:</span>
-                                <span style={{ fontWeight: 'bold', fontSize: '1.4rem', color: today_pending > 0 ? '#ef4444' : '#10b981' }}>
-                                    ₹ {today_pending.toFixed(2)}
+                                <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>DIFFERENCE:</span>
+                                <span style={{ fontWeight: 'bold', fontSize: '1.4rem', color: settlement_difference >= 0 ? '#10b981' : '#ef4444' }}>
+                                    ₹ {settlement_difference.toFixed(2)}
                                 </span>
                             </div>
                         </div>

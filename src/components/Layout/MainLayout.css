@@ -105,9 +105,13 @@
 }
 
 /* Ensure content sits above any potential background */
-.content-area,
-.top-bar {
+.content-area {
     z-index: 1;
+    position: relative;
+}
+
+.top-bar {
+    z-index: 20;
     position: relative;
 }
 

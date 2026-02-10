@@ -15,24 +15,42 @@ const CreditLedger = () => {
     const fetchTransactions = async () => {
         setLoading(true);
 
-        const { data, error } = await supabase
+        // 1. Fetch Transactions
+        const { data: transactionsData, error: transError } = await supabase
             .from('credit_transactions')
-            .select(`
-                *,
-                customers ( name, phone )
-            `)
+            .select('*')
             .order('created_at', { ascending: false });
 
-        if (error) console.error("Error fetching credits:", error);
+        if (transError) {
+            console.error("Error fetching credits:", transError);
+            setLoading(false);
+            return;
+        }
 
-        if (data) {
-            // Flatten the structure for easier usage
-            const formatted = data.map(t => ({
-                ...t,
-                // Fallback to stored name if relation is null (deleted customer)
-                customer_name: t.customers?.name || t.customer_name,
-                customer_phone: t.customers?.phone
-            }));
+        // 2. Fetch Customers to map names/phones (Manual Join)
+        const { data: customersData, error: custError } = await supabase
+            .from('customers')
+            .select('id, name, phone');
+
+        if (custError) console.error("Error fetching customers:", custError);
+
+        const customerMap = {};
+        if (customersData) {
+            customersData.forEach(c => {
+                customerMap[c.id] = c;
+            });
+        }
+
+        if (transactionsData) {
+            const formatted = transactionsData.map(t => {
+                const customer = customerMap[t.customer_id];
+                return {
+                    ...t,
+                    // Use live customer data if available, else fallback to stored snapshot
+                    customer_name: customer?.name || t.customer_name || 'Unknown',
+                    customer_phone: customer?.phone
+                };
+            });
             setTransactions(formatted);
         }
         setLoading(false);
@@ -84,8 +102,8 @@ const CreditLedger = () => {
             </div>
 
             {/* Controls */}
-            <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+            <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ position: 'relative', width: '250px' }}>
                     <Search size={18} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                     <input
                         className="input"
