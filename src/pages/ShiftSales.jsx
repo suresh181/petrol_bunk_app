@@ -88,7 +88,7 @@ const ShiftSales = () => {
     };
 
     const [generalShift, setGeneralShift] = useState(() => loadState('shift_general', {
-        opening: 0, closing: 0, test_taken: 0, test_returned: 0,
+        opening: 0, closing: 0, test: 0,
         cash: 0, upi: 0, card: 0, credit: 0
     }));
 
@@ -98,7 +98,7 @@ const ShiftSales = () => {
     }));
 
     const [dieselShift, setDieselShift] = useState(() => loadState('shift_diesel', {
-        opening: 0, closing: 0, test_taken: 0, test_returned: 0,
+        opening: 0, closing: 0, test: 0,
         cash: 0, upi: 0, card: 0, credit: 0
     }));
 
@@ -130,8 +130,7 @@ const ShiftSales = () => {
     const total_collection_general = Number(generalShift.cash) + Number(generalShift.upi) + Number(generalShift.card) + Number(generalShift.credit);
     const ms_general_short_excess = sale_amount_general - total_collection_general;
 
-    // Test Sample Logic (MS)
-    const ms_test_net = Number(generalShift.test_taken || 0) - Number(generalShift.test_returned || 0);
+    // Test Sample Logic (MS) corresponds directly to test returned to tank
 
     // 2. Night Shift Petrol Calculation
     const litres_night = Math.max(0, nightShift.closing - nightShift.opening);
@@ -145,8 +144,7 @@ const ShiftSales = () => {
     const diesel_total_collection = Number(dieselShift.cash) + Number(dieselShift.upi) + Number(dieselShift.card) + Number(dieselShift.credit);
     const hsd_short_excess = diesel_sale_amount - diesel_total_collection;
 
-    // Test Sample Logic (HSD)
-    const hsd_test_net = Number(dieselShift.test_taken || 0) - Number(dieselShift.test_returned || 0);
+    // Test Sample Logic (HSD) corresponds directly to test returned to tank
 
     // 4. Today Pending + Settlement Logic
     const total_calc = ms_general_short_excess + ms_night_short_excess + hsd_short_excess + Number(yesterdayPending) - Number(todayPendingInput || 0);
@@ -272,6 +270,7 @@ const ShiftSales = () => {
             { "Metric": "1. GENERAL SHIFT (PETROL)", "Value": "---" },
             { "Metric": "Opening Reading", "Value": generalShift.opening },
             { "Metric": "Closing Reading", "Value": generalShift.closing },
+            { "Metric": "Test Sample", "Value": Number(generalShift.test || 0) },
             { "Metric": "Litres Sold", "Value": litres_general.toFixed(2) },
             { "Metric": "Expected Amount (₹)", "Value": sale_amount_general.toFixed(2) },
             { "Metric": "Collections", "Value": `Cash: ${generalShift.cash}, UPI: ${generalShift.upi}, Card: ${generalShift.card}, Credit: ${generalShift.credit}` },
@@ -292,6 +291,7 @@ const ShiftSales = () => {
             { "Metric": "3. DIESEL (24 HOURS)", "Value": "---" },
             { "Metric": "Yesterday Closing", "Value": dieselShift.opening },
             { "Metric": "Today Closing", "Value": dieselShift.closing },
+            { "Metric": "Test Sample", "Value": Number(dieselShift.test || 0) },
             { "Metric": "Litres Sold", "Value": diesel_litres_24hrs.toFixed(2) },
             { "Metric": "Expected Amount (₹)", "Value": diesel_sale_amount.toFixed(2) },
             { "Metric": "Collections", "Value": `Cash: ${dieselShift.cash}, UPI: ${dieselShift.upi}, Card: ${dieselShift.card}, Credit: ${dieselShift.credit}` },
@@ -390,8 +390,8 @@ const ShiftSales = () => {
             //   Let's simplify: Stock -= (Litres Sold - Test Returned).
 
             await supabase.from('fuel_prices').update({
-                petrol_stock: currentPetrolStock - (litres_general + litres_night) + (Number(generalShift.test_returned) || 0),
-                diesel_stock: currentDieselStock - diesel_litres_24hrs + (Number(dieselShift.test_returned) || 0)
+                petrol_stock: currentPetrolStock - (litres_general + litres_night) + (Number(generalShift.test) || 0),
+                diesel_stock: currentDieselStock - diesel_litres_24hrs + (Number(dieselShift.test) || 0)
             }).eq('id', prices.id);
         }
 
@@ -458,8 +458,7 @@ const ShiftSales = () => {
                                 <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
                                 <InputRow label="Opening Reading" val={generalShift.opening} setVal={v => setGeneralShift({ ...generalShift, opening: v })} />
                                 <InputRow label="Closing Reading" val={generalShift.closing} setVal={v => setGeneralShift({ ...generalShift, closing: v })} />
-                                <InputRow label="Test Sample TAKEN" val={generalShift.test_taken} setVal={v => setGeneralShift({ ...generalShift, test_taken: v })} />
-                                <InputRow label="Test Sample RETURNED" val={generalShift.test_returned} setVal={v => setGeneralShift({ ...generalShift, test_returned: v })} readOnly={!generalShift.test_taken || Number(generalShift.test_taken) <= 0} />
+                                <InputRow label="Test Sample" val={generalShift.test} setVal={v => setGeneralShift({ ...generalShift, test: v })} />
 
                                 <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: '#3b82f6', fontSize: '0.9rem' }}>
                                     Litres Sold: {litres_general.toFixed(2)}
@@ -468,7 +467,7 @@ const ShiftSales = () => {
                                     Expected Amount: ₹ {sale_amount_general.toFixed(2)}
                                 </div>
                                 <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', textAlign: 'right', color: '#64748b' }}>
-                                    Net Test Sample: {ms_test_net.toFixed(2)} L (Stock Adj)
+                                    Test Sample Returned: {generalShift.test || 0} L (Stock Adj)
                                 </div>
                             </div>
                             <div>
@@ -528,8 +527,7 @@ const ShiftSales = () => {
                                 <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
                                 <InputRow label="Yesterday Closing" val={dieselShift.opening} setVal={v => setDieselShift({ ...dieselShift, opening: v })} />
                                 <InputRow label="Today Closing" val={dieselShift.closing} setVal={v => setDieselShift({ ...dieselShift, closing: v })} />
-                                <InputRow label="Test Sample TAKEN" val={dieselShift.test_taken} setVal={v => setDieselShift({ ...dieselShift, test_taken: v })} />
-                                <InputRow label="Test Sample RETURNED" val={dieselShift.test_returned} setVal={v => setDieselShift({ ...dieselShift, test_returned: v })} readOnly={!dieselShift.test_taken || Number(dieselShift.test_taken) <= 0} />
+                                <InputRow label="Test Sample" val={dieselShift.test} setVal={v => setDieselShift({ ...dieselShift, test: v })} />
 
                                 <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: '#d97706', fontSize: '0.9rem' }}>
                                     Litres Sold: {diesel_litres_24hrs.toFixed(2)}
@@ -538,7 +536,7 @@ const ShiftSales = () => {
                                     Expected Amount: ₹ {diesel_sale_amount.toFixed(2)}
                                 </div>
                                 <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', textAlign: 'right', color: '#64748b' }}>
-                                    Net Test Sample: {hsd_test_net.toFixed(2)} L (Stock Adj)
+                                    Test Sample Returned: {dieselShift.test || 0} L (Stock Adj)
                                 </div>
                             </div>
                             <div>

@@ -26,9 +26,12 @@ const MainLayout = ({ children }) => {
             {/* Sidebar */}
             <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
                 <div className="sidebar-header" style={{ justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <h2>PPR & Sons</h2>
-                        <span className="badge">Bunk</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                        <img src="https://iocl.com/assets/images/logo.gif" alt="Indian Oil" style={{ height: '36px' }} />
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <h2 style={{ fontSize: '1.1rem', margin: 0 }}>PPR & Sons</h2>
+                            <span style={{ fontSize: '0.7rem', color: '#94a3b8', letterSpacing: '1px' }}>INDIANOIL</span>
+                        </div>
                     </div>
                     {/* Close Button Mobile */}
                     <button className="btn" style={{ color: 'white', padding: 0 }} onClick={() => setIsMobileMenuOpen(false)}>
