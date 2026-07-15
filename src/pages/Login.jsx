@@ -39,7 +39,7 @@ const Login = () => {
             justifyContent: 'center',
             background: 'linear-gradient(135deg, #002F87 0%, #001e57 100%)'
         }}>
-            <div className="card" style={{ width: '400px', textAlign: 'center', padding: '3rem', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="card" style={{ width: 'min(400px, 90%)', textAlign: 'center', padding: '2.5rem 1.5rem', border: '1px solid rgba(255,255,255,0.1)' }}>
                 <img src="https://iocl.com/assets/images/logo.gif" alt="Indian Oil" style={{ height: '70px', marginBottom: '1rem' }} />
                 <h1 style={{ color: '#F37022', marginBottom: '0.5rem', fontSize: '1.8rem' }}>PPR & Sons</h1>
                 <p style={{ color: '#94a3b8', marginBottom: '3rem' }}>Bunk Management System</p>

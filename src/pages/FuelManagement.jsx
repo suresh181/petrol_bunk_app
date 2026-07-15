@@ -120,7 +120,7 @@ const FuelManagement = () => {
             {showAddForm && (
                 <div className="card" style={{ marginBottom: '2rem', border: '1px solid #0056b3' }}>
                     <h3>Add New Nozzle</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', alignItems: 'end', marginTop: '1rem' }}>
+                    <div className="add-nozzle-grid" style={{ marginTop: '1rem' }}>
                         <div>
                             <label style={{ fontSize: '0.8rem', color: '#64748b' }}>Nozzle ID</label>
                             <input className="input" placeholder="e.g. N5" value={newNozzle.id} onChange={e => setNewNozzle({ ...newNozzle, id: e.target.value })} />
@@ -180,7 +180,7 @@ const FuelManagement = () => {
 
                 {/* PROFIT & STOCK */}
                 <h4 style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '0.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '4px' }}>Inventory & Profit Settings</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                <div className="responsive-grid-4">
                     <div>
                         <label className="label">Petrol Profit (₹/L)</label>
                         <input type="number" className="input" value={localPrices.petrol_profit || 4.0} onChange={(e) => setLocalPrices({ ...localPrices, petrol_profit: e.target.value })} />
@@ -189,7 +189,7 @@ const FuelManagement = () => {
                         <label className="label">Diesel Profit (₹/L)</label>
                         <input type="number" className="input" value={localPrices.diesel_profit || 2.6} onChange={(e) => setLocalPrices({ ...localPrices, diesel_profit: e.target.value })} />
                     </div>
-                    <div style={{ borderLeft: '1px solid #e2e8f0', paddingLeft: '1rem' }}>
+                    <div>
                         <label className="label">Petrol Stock (L)</label>
                         <input type="number" className="input" value={localPrices.petrol_stock || 0} onChange={(e) => setLocalPrices({ ...localPrices, petrol_stock: e.target.value })} />
                     </div>
@@ -209,7 +209,8 @@ const FuelManagement = () => {
             {/* Nozzle List */}
             <div className="card">
                 <h3>Active Nozzles (Synced)</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem' }}>
+                <div className="table-container">
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
                             <th style={{ padding: '12px', fontSize: '0.875rem', color: '#64748b' }}>Nozzle ID</th>
@@ -245,6 +246,7 @@ const FuelManagement = () => {
                         ))}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
     );

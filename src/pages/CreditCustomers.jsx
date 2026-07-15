@@ -50,7 +50,7 @@ const CreditCustomers = () => {
             {showForm && (
                 <div className="card" style={{ marginBottom: '2rem', border: '1px solid #0056b3' }}>
                     <h3>Add New Credit Customer</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr) 100px', gap: '1rem', alignItems: 'end', marginTop: '1rem' }}>
+                    <div className="add-customer-grid" style={{ marginTop: '1rem' }}>
                         <div>
                             <label style={{ fontSize: '0.8rem', color: '#64748b' }}>Customer / Company Name</label>
                             <input className="input" value={newCustomer.name} onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })} placeholder="e.g. Siva Transports" />
@@ -73,7 +73,8 @@ const CreditCustomers = () => {
             )}
 
             <div className="card">
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div className="table-container">
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
                             <th style={{ padding: '12px', color: '#64748b' }}>Name</th>
@@ -103,6 +104,7 @@ const CreditCustomers = () => {
                         ))}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
     );

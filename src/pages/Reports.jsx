@@ -125,7 +125,8 @@ const Reports = () => {
             {/* ATTENDANT PERFORMANCE */}
             <div className="card">
                 <h3><Users size={18} style={{ marginRight: '8px' }} /> Staff Performance</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem' }}>
+                <div className="table-container">
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
                             <th style={{ padding: '10px', fontSize: '0.85rem', color: '#64748b' }}>Staff Name</th>
@@ -148,6 +149,7 @@ const Reports = () => {
                         )}
                     </tbody>
                 </table>
+                </div>
             </div>
 
         </div>

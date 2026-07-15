@@ -85,3 +85,80 @@ body {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.1);
 }
+
+/* --- Responsive Utilities --- */
+
+/* Responsive Grid layouts */
+.responsive-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .responsive-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .responsive-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Custom Add Customer grid layout */
+.add-customer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr) 100px;
+  gap: 1rem;
+  align-items: end;
+}
+
+@media (max-width: 1024px) {
+  .add-customer-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .add-customer-grid button {
+    grid-column: span 2;
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .add-customer-grid {
+    grid-template-columns: 1fr;
+  }
+  .add-customer-grid button {
+    grid-column: span 1;
+  }
+}
+
+/* Custom Add Nozzle grid layout */
+.add-nozzle-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  align-items: end;
+}
+
+@media (max-width: 1024px) {
+  .add-nozzle-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .add-nozzle-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Reusable scrollable table container for mobile sizes */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 1rem;
+}

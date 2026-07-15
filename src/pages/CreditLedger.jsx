@@ -141,7 +141,8 @@ const CreditLedger = () => {
                 {loading ? (
                     <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading...</div>
                 ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <div className="table-container">
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
                                 <th style={{ padding: '12px', fontSize: '0.85rem', color: '#64748b' }}>Date</th>
@@ -247,6 +248,7 @@ const CreditLedger = () => {
                             )}
                         </tbody>
                     </table>
+                    </div>
                 )}
             </div>
         </div>
