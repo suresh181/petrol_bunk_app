@@ -20,9 +20,9 @@ function calculateDiesel(opening, closing, test_taken, test_returned, cash) {
     return { litres, sale_amount, short_excess, test_net };
 }
 
-// 3. Settlement Logic
-function calculateSettlement(short_gen, short_night, short_diesel, yesterday_pending, today_pending_input, today_settlement) {
-    const total_calc = short_gen + short_night + short_diesel + yesterday_pending - today_pending_input;
+// 3. Settlement Logic (UPI-based)
+function calculateSettlement(upi_gen, upi_night, upi_diesel, yesterday_pending, today_pending_input, today_settlement) {
+    const total_calc = upi_gen + upi_night + upi_diesel + yesterday_pending - today_pending_input;
     const difference = today_settlement - total_calc;
     return { total_calc, difference };
 }

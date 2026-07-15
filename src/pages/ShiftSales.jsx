@@ -146,8 +146,8 @@ const ShiftSales = () => {
 
     // Test Sample Logic (HSD) corresponds directly to test returned to tank
 
-    // 4. Today Pending + Settlement Logic
-    const total_calc = ms_general_short_excess + ms_night_short_excess + hsd_short_excess + Number(yesterdayPending) - Number(todayPendingInput || 0);
+    // 4. Today Pending + Settlement Logic (UPI-only)
+    const total_calc = Number(generalShift.upi || 0) + Number(nightShift.upi || 0) + Number(dieselShift.upi || 0) + Number(yesterdayPending) - Number(todayPendingInput || 0);
     const settlement_difference = Number(todaySettlement || 0) - total_calc;
 
     // Aggregates for Reporting
@@ -237,6 +237,8 @@ const ShiftSales = () => {
     const handleCloseShift = async () => {
         if (!confirm("Confirm Close Daily Reconciliation? This will save all shift data and download the Excel report.")) return;
 
+        const today_pending = Number(todayPendingInput || 0);
+
         // 1. Prepare Data Record for DB
         const record = {
             shift_date: new Date(),
@@ -249,6 +251,9 @@ const ShiftSales = () => {
 
             // "Today Pending" stored as shortage_excess
             shortage_excess: today_pending,
+
+            // Store Today Settlement
+            today_settlement_amount: Number(todaySettlement || 0),
 
             // Store Test Samples
             petrol_test_samples: Number(generalShift.test || 0),
@@ -299,10 +304,10 @@ const ShiftSales = () => {
             { "Metric": "", "Value": "" },
 
             // Final Pending
-            { "Metric": "4. DAILY SETTLEMENT", "Value": "---" },
-            { "Metric": "MS General Short/Excess", "Value": ms_general_short_excess.toFixed(2) },
-            { "Metric": "MS Night Short/Excess", "Value": ms_night_short_excess.toFixed(2) },
-            { "Metric": "HSD Short/Excess", "Value": hsd_short_excess.toFixed(2) },
+            { "Metric": "4. DAILY SETTLEMENT (UPI)", "Value": "---" },
+            { "Metric": "MS General UPI", "Value": Number(generalShift.upi || 0).toFixed(2) },
+            { "Metric": "MS Night UPI", "Value": Number(nightShift.upi || 0).toFixed(2) },
+            { "Metric": "HSD UPI", "Value": Number(dieselShift.upi || 0).toFixed(2) },
             { "Metric": "Yesterday Pending", "Value": yesterdayPending.toFixed(2) },
             { "Metric": "Today Pending (Input)", "Value": Number(todayPendingInput || 0).toFixed(2) },
             { "Metric": "Total Calculated", "Value": total_calc.toFixed(2) },
@@ -607,20 +612,20 @@ const ShiftSales = () => {
 
                     {/* 4. TODAY PENDING LOGIC */}
                     <div className="card" style={{ background: '#f8fafc', border: '1px solid #cbd5e1' }}>
-                        <h3 style={{ marginBottom: '1rem', color: '#334155' }}>4. Daily Settlement Logic</h3>
+                        <h3 style={{ marginBottom: '1rem', color: '#334155' }}>4. Daily Settlement Logic (UPI)</h3>
 
                         <div style={{ display: 'grid', gap: '8px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
-                                <span>1. MS General Short/Excess:</span>
-                                <span style={{ color: ms_general_short_excess > 0 ? 'green' : 'red' }}>{ms_general_short_excess.toFixed(2)}</span>
+                                <span>1. MS General UPI:</span>
+                                <span style={{ fontWeight: 'bold' }}>{Number(generalShift.upi || 0).toFixed(2)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
-                                <span>2. MS Night Short/Excess:</span>
-                                <span style={{ color: ms_night_short_excess > 0 ? 'green' : 'red' }}>{ms_night_short_excess.toFixed(2)}</span>
+                                <span>2. MS Night UPI:</span>
+                                <span style={{ fontWeight: 'bold' }}>{Number(nightShift.upi || 0).toFixed(2)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
-                                <span>3. HSD Short/Excess:</span>
-                                <span style={{ color: hsd_short_excess > 0 ? 'green' : 'red' }}>{hsd_short_excess.toFixed(2)}</span>
+                                <span>3. HSD UPI:</span>
+                                <span style={{ fontWeight: 'bold' }}>{Number(dieselShift.upi || 0).toFixed(2)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
                                 <span>4. Yesterday Pending:</span>

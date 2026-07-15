@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
-import { CheckCircle, Clock, Search, Filter, MessageCircle } from 'lucide-react';
+import { CheckCircle, Clock, Search, Filter, MessageCircle, Smartphone } from 'lucide-react';
 
 const CreditLedger = () => {
     const [transactions, setTransactions] = useState([]);
@@ -27,10 +27,10 @@ const CreditLedger = () => {
             return;
         }
 
-        // 2. Fetch Customers to map names/phones (Manual Join)
+        // 2. Fetch Customers to map names/phones/vehicles (Manual Join)
         const { data: customersData, error: custError } = await supabase
             .from('customers')
-            .select('id, name, phone');
+            .select('id, name, phone, vehicle');
 
         if (custError) console.error("Error fetching customers:", custError);
 
@@ -48,7 +48,8 @@ const CreditLedger = () => {
                     ...t,
                     // Use live customer data if available, else fallback to stored snapshot
                     customer_name: customer?.name || t.customer_name || 'Unknown',
-                    customer_phone: customer?.phone
+                    customer_phone: customer?.phone,
+                    customer_vehicle: customer?.vehicle || ''
                 };
             });
             setTransactions(formatted);
@@ -194,26 +195,50 @@ const CreditLedger = () => {
                                                     >
                                                         Settle
                                                     </button>
-                                                    {t.customer_phone && (
-                                                        <a
-                                                            href={`https://wa.me/${t.customer_phone}?text=Hello ${t.customer_name}, REMINDER from PPR & Sons: You have a pending credit bill of ₹${t.amount}. Please pay at your earliest convenience.`}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            style={{
-                                                                background: '#25D366',
-                                                                color: '#ffffff',
-                                                                border: 'none',
-                                                                padding: '4px 8px',
-                                                                borderRadius: '4px',
-                                                                cursor: 'pointer',
-                                                                display: 'flex', alignItems: 'center',
-                                                                textDecoration: 'none'
-                                                            }}
-                                                            title="Send WhatsApp Reminder"
-                                                        >
-                                                            <MessageCircle size={14} />
-                                                        </a>
-                                                    )}
+                                                    {t.customer_phone && (() => {
+                                                        const reminderMsg = `Hello ${t.customer_name}, Reminder from PPR and Sons (Indian Oil): Pending balance of Rs. ${t.amount} is to be paid for Vehicle ${t.customer_vehicle || 'registered vehicle'}. Please settle at your earliest convenience.`;
+                                                        const encodedMsg = encodeURIComponent(reminderMsg);
+                                                        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+                                                        const smsHref = `sms:${t.customer_phone}${isIOS ? '&' : '?'}body=${encodedMsg}`;
+                                                        return (
+                                                            <div style={{ display: 'flex', gap: '4px' }}>
+                                                                <a
+                                                                    href={`https://wa.me/${t.customer_phone}?text=${encodedMsg}`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    style={{
+                                                                        background: '#25D366',
+                                                                        color: '#ffffff',
+                                                                        border: 'none',
+                                                                        padding: '6px 8px',
+                                                                        borderRadius: '4px',
+                                                                        cursor: 'pointer',
+                                                                        display: 'flex', alignItems: 'center',
+                                                                        textDecoration: 'none'
+                                                                    }}
+                                                                    title="Send WhatsApp Reminder"
+                                                                >
+                                                                    <MessageCircle size={14} />
+                                                                </a>
+                                                                <a
+                                                                    href={smsHref}
+                                                                    style={{
+                                                                        background: '#0ea5e9',
+                                                                        color: '#ffffff',
+                                                                        border: 'none',
+                                                                        padding: '6px 8px',
+                                                                        borderRadius: '4px',
+                                                                        cursor: 'pointer',
+                                                                        display: 'flex', alignItems: 'center',
+                                                                        textDecoration: 'none'
+                                                                    }}
+                                                                    title="Send SMS Reminder"
+                                                                >
+                                                                    <Smartphone size={14} />
+                                                                </a>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             )}
                                         </td>

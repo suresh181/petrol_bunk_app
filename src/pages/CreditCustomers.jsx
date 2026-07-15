@@ -6,7 +6,7 @@ import { supabase } from '../services/supabase';
 const CreditCustomers = () => {
     const { customers, loading } = useData();
 
-    const [newCustomer, setNewCustomer] = useState({ name: '', vehicle: '', discount: 0 });
+    const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', vehicle: '', discount: 0 });
     const [showForm, setShowForm] = useState(false);
 
     const handleAdd = async () => {
@@ -14,13 +14,14 @@ const CreditCustomers = () => {
             try {
                 const { error } = await supabase.from('customers').insert([{
                     name: newCustomer.name,
+                    phone: newCustomer.phone,
                     vehicle: newCustomer.vehicle,
                     discount_percent: newCustomer.discount
                 }]);
 
                 if (error) throw error;
 
-                setNewCustomer({ name: '', vehicle: '', discount: 0 });
+                setNewCustomer({ name: '', phone: '', vehicle: '', discount: 0 });
                 setShowForm(false);
             } catch (e) {
                 alert("Error adding customer: " + e.message);
@@ -49,10 +50,14 @@ const CreditCustomers = () => {
             {showForm && (
                 <div className="card" style={{ marginBottom: '2rem', border: '1px solid #0056b3' }}>
                     <h3>Add New Credit Customer</h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr) 100px', gap: '1rem', alignItems: 'end', marginTop: '1rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr) 100px', gap: '1rem', alignItems: 'end', marginTop: '1rem' }}>
                         <div>
                             <label style={{ fontSize: '0.8rem', color: '#64748b' }}>Customer / Company Name</label>
                             <input className="input" value={newCustomer.name} onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })} placeholder="e.g. Siva Transports" />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '0.8rem', color: '#64748b' }}>Phone Number</label>
+                            <input className="input" value={newCustomer.phone} onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })} placeholder="e.g. 9876543210" />
                         </div>
                         <div>
                             <label style={{ fontSize: '0.8rem', color: '#64748b' }}>Vehicle / Note</label>
@@ -60,7 +65,7 @@ const CreditCustomers = () => {
                         </div>
                         <div>
                             <label style={{ fontSize: '0.8rem', color: '#64748b' }}>Discount (%)</label>
-                            <input type="number" step="0.1" className="input" value={newCustomer.discount} onChange={e => setNewCustomer({ ...newCustomer, discount: parseFloat(e.target.value) })} />
+                            <input type="number" step="0.1" className="input" value={newCustomer.discount} onChange={e => setNewCustomer({ ...newCustomer, discount: parseFloat(e.target.value) || 0 })} />
                         </div>
                         <button className="btn btn-primary" onClick={handleAdd}>Save</button>
                     </div>
