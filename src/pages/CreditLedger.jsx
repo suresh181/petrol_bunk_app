@@ -1,6 +1,6 @@
 import React, { useState, useEffect, Fragment } from 'react';
 import { supabase } from '../services/supabase';
-import { CheckCircle, Clock, Search, MessageCircle, Smartphone, ChevronDown, ChevronUp } from 'lucide-react';
+import { CheckCircle, Clock, Search, MessageCircle, Smartphone, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 
 const CreditLedger = () => {
     const [transactions, setTransactions] = useState([]);
@@ -16,6 +16,14 @@ const CreditLedger = () => {
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().substring(0, 10));
     const [paymentNotes, setPaymentNotes] = useState('');
     const [submittingPayment, setSubmittingPayment] = useState(false);
+
+    // Modal state for editing an entry
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [selectedEntry, setSelectedEntry] = useState(null);
+    const [editAmount, setEditAmount] = useState('');
+    const [editDate, setEditDate] = useState('');
+    const [editNotes, setEditNotes] = useState('');
+    const [submittingEdit, setSubmittingEdit] = useState(false);
 
     useEffect(() => {
         fetchTransactions();
@@ -176,6 +184,44 @@ const CreditLedger = () => {
             alert("Failed to record payment: " + e.message);
         } finally {
             setSubmittingPayment(false);
+        }
+    };
+
+    const handleOpenEditModal = (entry) => {
+        setSelectedEntry(entry);
+        setEditAmount(entry.amount);
+        setEditDate(new Date(entry.created_at).toISOString().substring(0, 10));
+        setEditNotes(entry.notes || '');
+        setShowEditModal(true);
+    };
+
+    const handleEditSubmit = async () => {
+        if (!editAmount || Number(editAmount) <= 0) {
+            alert("Please enter a valid amount.");
+            return;
+        }
+
+        setSubmittingEdit(true);
+        try {
+            const { error } = await supabase
+                .from('credit_transactions')
+                .update({
+                    amount: Number(editAmount),
+                    created_at: new Date(editDate).toISOString(),
+                    notes: editNotes
+                })
+                .eq('id', selectedEntry.id);
+
+            if (error) throw error;
+
+            alert("Entry updated successfully!");
+            setShowEditModal(false);
+            fetchTransactions();
+        } catch (e) {
+            console.error("Error editing entry:", e);
+            alert("Failed to update entry: " + e.message);
+        } finally {
+            setSubmittingEdit(false);
         }
     };
 
@@ -366,7 +412,27 @@ const CreditLedger = () => {
                                             <tr style={{ background: '#f8fafc' }}>
                                                 <td colSpan="5" style={{ padding: '1rem 2rem' }}>
                                                     <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '1.25rem', boxShadow: 'var(--shadow-sm)' }}>
-                                                        <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-main)', fontSize: '0.95rem' }}>Transaction & Payment History</h4>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                            <h4 style={{ margin: '0', color: 'var(--text-main)', fontSize: '0.95rem' }}>Transaction & Payment History</h4>
+                                                            <button
+                                                                onClick={() => handleOpenPaymentModal(t)}
+                                                                style={{
+                                                                    background: '#ecfdf5',
+                                                                    color: '#059669',
+                                                                    border: '1px solid #d1fae5',
+                                                                    padding: '4px 10px',
+                                                                    borderRadius: '4px',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: '0.8rem',
+                                                                    fontWeight: '600',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '4px'
+                                                                }}
+                                                            >
+                                                                + Add Payment
+                                                            </button>
+                                                        </div>
                                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                                                             <thead>
                                                                 <tr style={{ borderBottom: '1px solid #e2e8f0', textAlign: 'left', color: '#64748b' }}>
@@ -375,12 +441,13 @@ const CreditLedger = () => {
                                                                     <th style={{ padding: '8px 12px' }}>Amount</th>
                                                                     <th style={{ padding: '8px 12px' }}>Running Balance</th>
                                                                     <th style={{ padding: '8px 12px' }}>Notes</th>
+                                                                    <th style={{ padding: '8px 12px', textAlign: 'center' }}>Action</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
                                                                 {t.history.length === 0 ? (
                                                                     <tr>
-                                                                        <td colSpan="5" style={{ padding: '12px', textAlign: 'center', color: '#94a3b8' }}>No history entries found</td>
+                                                                        <td colSpan="6" style={{ padding: '12px', textAlign: 'center', color: '#94a3b8' }}>No history entries found</td>
                                                                     </tr>
                                                                 ) : (
                                                                     t.history.map((entry, idx) => (
@@ -397,6 +464,25 @@ const CreditLedger = () => {
                                                                             <td style={{ padding: '8px 12px', fontWeight: '500' }}>₹ {entry.amount.toFixed(2)}</td>
                                                                             <td style={{ padding: '8px 12px', fontWeight: 'bold' }}>₹ {entry.entry_balance.toFixed(2)}</td>
                                                                             <td style={{ padding: '8px 12px', color: '#64748b', fontSize: '0.8rem' }}>{entry.notes || '-'}</td>
+                                                                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                                                                                {!String(entry.id).includes('-payment-migrated') ? (
+                                                                                    <button
+                                                                                        onClick={() => handleOpenEditModal(entry)}
+                                                                                        style={{
+                                                                                            background: 'none',
+                                                                                            border: 'none',
+                                                                                            color: '#3b82f6',
+                                                                                            cursor: 'pointer',
+                                                                                            padding: '2px'
+                                                                                        }}
+                                                                                        title="Edit Entry"
+                                                                                    >
+                                                                                        <Pencil size={14} />
+                                                                                    </button>
+                                                                                ) : (
+                                                                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }} title="Legacy auto-migrated settlement cannot be edited directly">Legacy</span>
+                                                                                )}
+                                                                            </td>
                                                                         </tr>
                                                                     ))
                                                                 )}
@@ -482,6 +568,78 @@ const CreditLedger = () => {
                                 style={{ flex: 1, border: '1px solid var(--border)' }} 
                                 onClick={() => setShowPaymentModal(false)}
                                 disabled={submittingPayment}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Entry Modal */}
+            {showEditModal && selectedEntry && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div className="card" style={{ width: '400px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--surface)' }}>
+                        <h3 style={{ margin: 0, color: 'var(--text-main)' }}>Edit {selectedEntry.type} Entry</h3>
+                        
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Amount (₹)</label>
+                            <input 
+                                type="number" 
+                                className="input" 
+                                value={editAmount} 
+                                onChange={e => setEditAmount(e.target.value)} 
+                                placeholder="Enter amount" 
+                                autoFocus 
+                            />
+                        </div>
+                        
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Date</label>
+                            <input 
+                                type="date" 
+                                className="input" 
+                                value={editDate} 
+                                onChange={e => setEditDate(e.target.value)} 
+                            />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Notes</label>
+                            <input 
+                                type="text" 
+                                className="input" 
+                                value={editNotes} 
+                                onChange={e => setEditNotes(e.target.value)} 
+                                placeholder="Notes" 
+                            />
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                            <button 
+                                className="btn btn-primary" 
+                                style={{ flex: 1 }} 
+                                onClick={handleEditSubmit}
+                                disabled={submittingEdit}
+                            >
+                                {submittingEdit ? 'Saving...' : 'Save Changes'}
+                            </button>
+                            <button 
+                                className="btn btn-secondary" 
+                                style={{ flex: 1, border: '1px solid var(--border)' }} 
+                                onClick={() => setShowEditModal(false)}
+                                disabled={submittingEdit}
                             >
                                 Cancel
                             </button>
