@@ -83,38 +83,30 @@ const CreditCustomers = () => {
 
     const performDelete = async (customer, balanceToSettle) => {
         try {
-            // 1. If balance > 0, log a settled payment in credit_transactions with null customer_id (system wide ledger reference)
-            if (balanceToSettle > 0) {
-                const { error: insertError } = await supabase
-                    .from('credit_transactions')
-                    .insert([{
-                        customer_id: null,
-                        customer_name: customer.name,
-                        amount: balanceToSettle,
-                        type: 'Payment Received',
-                        is_settled: true,
-                        created_at: new Date().toISOString(),
-                        notes: `Auto-settlement due to customer deletion of: ${customer.name} (Pending: ₹${balanceToSettle.toFixed(2)})`
-                    }]);
+            // 1. Call database atomic cascade deletion function via RPC
+            const { error: rpcError } = await supabase.rpc('delete_customer_cascade', {
+                p_customer_id: customer.id,
+                p_customer_name: customer.name,
+                p_balance_to_settle: balanceToSettle,
+                p_notes: `Auto-settlement due to customer deletion of: ${customer.name} (Pending: ₹${balanceToSettle.toFixed(2)})`
+            });
 
-                if (insertError) throw insertError;
+            if (rpcError) throw rpcError;
+
+            // 2. Clear local storage active shift credits for this customer in Shift Sales
+            try {
+                const localCredits = localStorage.getItem('shift_credits');
+                if (localCredits) {
+                    const parsed = JSON.parse(localCredits);
+                    if (Array.isArray(parsed)) {
+                        // Filter out credit bills belonging to this customer
+                        const filtered = parsed.filter(b => b.customer_id !== customer.id);
+                        localStorage.setItem('shift_credits', JSON.stringify(filtered));
+                    }
+                }
+            } catch (localErr) {
+                console.warn("Failed to clear local storage shift credits:", localErr);
             }
-
-            // 2. Delete all ledger/transaction entries tied to this customer ID
-            const { error: transDelError } = await supabase
-                .from('credit_transactions')
-                .delete()
-                .eq('customer_id', customer.id);
-
-            if (transDelError) throw transDelError;
-
-            // 3. Delete the customer record from the Customer tab
-            const { error: custDelError } = await supabase
-                .from('customers')
-                .delete()
-                .eq('id', customer.id);
-
-            if (custDelError) throw custDelError;
 
             alert(`Customer ${customer.name} and their history cleared successfully.`);
             setShowDeleteModal(false);
@@ -224,7 +216,7 @@ const CreditCustomers = () => {
                                 <b>{customerToDelete.name}</b> still has a pending balance of <span style={{ color: '#F37022', fontWeight: 'bold' }}>₹ {pendingBalance.toFixed(2)}</span>.
                             </p>
                             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                                Deleting this customer will settle this balance and clear all their transaction history. This action cannot be undone.
+                                Deleting this customer will settle this balance and permanently remove all their records from Shift Sales (credit bills) and the Credit Ledger. This cannot be undone.
                             </p>
                         </div>
                         
