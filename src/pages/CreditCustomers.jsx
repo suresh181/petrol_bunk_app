@@ -9,6 +9,12 @@ const CreditCustomers = () => {
     const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', vehicle: '', discount: 0 });
     const [showForm, setShowForm] = useState(false);
 
+    // Deletion modal state
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [customerToDelete, setCustomerToDelete] = useState(null);
+    const [pendingBalance, setPendingBalance] = useState(0);
+    const [checkingBalance, setCheckingBalance] = useState(false);
+
     const handleAdd = async () => {
         if (newCustomer.name) {
             try {
@@ -29,14 +35,101 @@ const CreditCustomers = () => {
         }
     };
 
-    const handleDelete = async (id) => {
-        if (confirm("Delete this customer?")) {
-            const { error } = await supabase.from('customers').delete().eq('id', id);
-            if (error) alert("Error deleting: " + error.message);
+    const handleDeleteClick = async (customer) => {
+        setCheckingBalance(true);
+        try {
+            // 1. Fetch live transactions to calculate outstanding balance
+            const { data: transData, error: transError } = await supabase
+                .from('credit_transactions')
+                .select('*')
+                .eq('customer_id', customer.id);
+
+            if (transError) throw transError;
+
+            let balance = 0;
+            if (transData) {
+                transData.forEach(t => {
+                    const amount = Number(t.amount) || 0;
+                    const type = t.type || 'Petrol Given';
+                    if (type === 'Payment Received') {
+                        balance -= amount;
+                    } else {
+                        balance += amount;
+                        if (t.is_settled && !t.type) {
+                            balance -= amount; // Legacy settled transaction has 0 net effect
+                        }
+                    }
+                });
+            }
+
+            if (balance <= 0) {
+                // Settle and delete immediately if no balance remains
+                if (confirm(`Are you sure you want to delete ${customer.name}?`)) {
+                    await performDelete(customer, 0);
+                }
+            } else {
+                // Show confirmation popup modal for pending balance
+                setCustomerToDelete(customer);
+                setPendingBalance(balance);
+                setShowDeleteModal(true);
+            }
+        } catch (e) {
+            console.error("Error checking balance:", e);
+            alert("Error checking customer balance: " + e.message);
+        } finally {
+            setCheckingBalance(false);
         }
     };
 
-    if (loading) return <div style={{ padding: '20px' }}>Syncing Customers...</div>;
+    const performDelete = async (customer, balanceToSettle) => {
+        try {
+            // 1. If balance > 0, log a settled payment in credit_transactions with null customer_id (system wide ledger reference)
+            if (balanceToSettle > 0) {
+                const { error: insertError } = await supabase
+                    .from('credit_transactions')
+                    .insert([{
+                        customer_id: null,
+                        customer_name: customer.name,
+                        amount: balanceToSettle,
+                        type: 'Payment Received',
+                        is_settled: true,
+                        created_at: new Date().toISOString(),
+                        notes: `Auto-settlement due to customer deletion of: ${customer.name} (Pending: ₹${balanceToSettle.toFixed(2)})`
+                    }]);
+
+                if (insertError) throw insertError;
+            }
+
+            // 2. Delete all ledger/transaction entries tied to this customer ID
+            const { error: transDelError } = await supabase
+                .from('credit_transactions')
+                .delete()
+                .eq('customer_id', customer.id);
+
+            if (transDelError) throw transDelError;
+
+            // 3. Delete the customer record from the Customer tab
+            const { error: custDelError } = await supabase
+                .from('customers')
+                .delete()
+                .eq('id', customer.id);
+
+            if (custDelError) throw custDelError;
+
+            alert(`Customer ${customer.name} and their history cleared successfully.`);
+            setShowDeleteModal(false);
+            
+            // Reload page to force Context and components to query new datasets
+            window.location.reload();
+        } catch (e) {
+            console.error("Deletion failed:", e);
+            alert("Deletion failed: " + e.message);
+        }
+    };
+
+    if (loading || checkingBalance) {
+        return <div style={{ padding: '20px' }}>{checkingBalance ? 'Checking customer ledger balance...' : 'Syncing Customers...'}</div>;
+    }
 
     return (
         <div>
@@ -96,7 +189,7 @@ const CreditCustomers = () => {
                                     </span>
                                 </td>
                                 <td style={{ padding: '12px' }}>
-                                    <button onClick={() => handleDelete(c.id)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                                    <button onClick={() => handleDeleteClick(c)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
                                         <Trash2 size={16} />
                                     </button>
                                 </td>
@@ -106,6 +199,61 @@ const CreditCustomers = () => {
                 </table>
                 </div>
             </div>
+
+            {/* Settle & Delete Customer Modal */}
+            {showDeleteModal && customerToDelete && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div className="card" style={{ width: '450px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', background: 'var(--surface)', border: '1px solid #dc2626' }}>
+                        <h3 style={{ margin: 0, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            Settle & Delete Customer?
+                        </h3>
+                        
+                        <div style={{ fontSize: '0.95rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                            <p style={{ margin: '0 0 10px 0' }}>
+                                <b>{customerToDelete.name}</b> still has a pending balance of <span style={{ color: '#F37022', fontWeight: 'bold' }}>₹ {pendingBalance.toFixed(2)}</span>.
+                            </p>
+                            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                Deleting this customer will settle this balance and clear all their transaction history. This action cannot be undone.
+                            </p>
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                            <button 
+                                className="btn" 
+                                style={{ 
+                                    flex: 1, 
+                                    backgroundColor: '#fee2e2', 
+                                    color: '#dc2626', 
+                                    border: '1px solid #fca5a5',
+                                    fontWeight: '600',
+                                    cursor: 'pointer'
+                                }} 
+                                onClick={() => performDelete(customerToDelete, pendingBalance)}
+                            >
+                                Yes, settle and delete
+                            </button>
+                            <button 
+                                className="btn btn-secondary" 
+                                style={{ flex: 1, border: '1px solid var(--border)', cursor: 'pointer' }} 
+                                onClick={() => { setShowDeleteModal(false); setCustomerToDelete(null); }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
