@@ -6,7 +6,7 @@ import { supabase } from '../services/supabase';
 const CreditCustomers = () => {
     const { customers, loading } = useData();
 
-    const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', vehicle: '', discount: 0 });
+    const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', vehicle: '', discount: 0, do_not_remind: false });
     const [showForm, setShowForm] = useState(false);
 
     // Deletion modal state
@@ -22,13 +22,15 @@ const CreditCustomers = () => {
                     name: newCustomer.name,
                     phone: newCustomer.phone,
                     vehicle: newCustomer.vehicle,
-                    discount_percent: newCustomer.discount
+                    discount_percent: newCustomer.discount,
+                    do_not_remind: newCustomer.do_not_remind
                 }]);
 
                 if (error) throw error;
 
-                setNewCustomer({ name: '', phone: '', vehicle: '', discount: 0 });
+                setNewCustomer({ name: '', phone: '', vehicle: '', discount: 0, do_not_remind: false });
                 setShowForm(false);
+                window.location.reload();
             } catch (e) {
                 alert("Error adding customer: " + e.message);
             }
@@ -152,6 +154,16 @@ const CreditCustomers = () => {
                             <label style={{ fontSize: '0.8rem', color: '#64748b' }}>Discount (%)</label>
                             <input type="number" step="0.1" className="input" value={newCustomer.discount} onChange={e => setNewCustomer({ ...newCustomer, discount: parseFloat(e.target.value) || 0 })} />
                         </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '10px', height: '100%' }}>
+                            <input 
+                                type="checkbox" 
+                                id="new_do_not_remind"
+                                checked={newCustomer.do_not_remind}
+                                onChange={e => setNewCustomer({ ...newCustomer, do_not_remind: e.target.checked })}
+                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                            />
+                            <label htmlFor="new_do_not_remind" style={{ fontSize: '0.8rem', color: '#64748b', cursor: 'pointer', userSelect: 'none' }}>Do Not Remind</label>
+                        </div>
                         <button className="btn btn-primary" onClick={handleAdd}>Save</button>
                     </div>
                 </div>
@@ -166,6 +178,7 @@ const CreditCustomers = () => {
                             <th style={{ padding: '12px', color: '#64748b' }}>Phone</th>
                             <th style={{ padding: '12px', color: '#64748b' }}>Vehicle / Fleet</th>
                             <th style={{ padding: '12px', color: '#64748b' }}>Discount</th>
+                            <th style={{ padding: '12px', color: '#64748b' }}>Reminders</th>
                             <th style={{ padding: '12px', color: '#64748b' }}>Action</th>
                         </tr>
                     </thead>
@@ -179,6 +192,31 @@ const CreditCustomers = () => {
                                     <span style={{ background: '#ecfccb', color: '#4d7c0f', padding: '2px 8px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: '600' }}>
                                         {c.discount}% Off
                                     </span>
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <input 
+                                            type="checkbox"
+                                            checked={c.do_not_remind || false}
+                                            onChange={async (e) => {
+                                                const updatedVal = e.target.checked;
+                                                const { error } = await supabase
+                                                    .from('customers')
+                                                    .update({ do_not_remind: updatedVal })
+                                                    .eq('id', c.id);
+                                                if (error) {
+                                                    alert("Failed to update reminder settings: " + error.message);
+                                                } else {
+                                                    window.location.reload();
+                                                }
+                                            }}
+                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                            title="Toggle auto-reminders"
+                                        />
+                                        <span style={{ fontSize: '0.8rem', color: c.do_not_remind ? '#ef4444' : '#10b981', fontWeight: '500' }}>
+                                            {c.do_not_remind ? 'Muted' : 'Active'}
+                                        </span>
+                                    </div>
                                 </td>
                                 <td style={{ padding: '12px' }}>
                                     <button onClick={() => handleDeleteClick(c)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>

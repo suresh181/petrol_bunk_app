@@ -110,7 +110,7 @@ body {
 /* Custom Add Customer grid layout */
 .add-customer-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr) 100px;
+  grid-template-columns: repeat(5, 1fr) 100px;
   gap: 1rem;
   align-items: end;
 }

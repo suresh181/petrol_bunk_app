@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Fuel, Banknote, CalendarRange, Settings, LogOut, Users, User, ChevronDown, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Fuel, Banknote, CalendarRange, Settings, LogOut, Users, User, ChevronDown, Menu, X, Bell } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import './MainLayout.css';
 
@@ -64,6 +64,10 @@ const MainLayout = ({ children }) => {
                     <NavLink to="/credit" className="nav-item" onClick={() => setIsMobileMenuOpen(false)}>
                         <Users size={20} />
                         <span>Customers</span>
+                    </NavLink>
+                    <NavLink to="/reminders" className="nav-item" onClick={() => setIsMobileMenuOpen(false)}>
+                        <Bell size={20} />
+                        <span>Reminder Logs</span>
                     </NavLink>
                     <NavLink to="/reports" className="nav-item" onClick={() => setIsMobileMenuOpen(false)}>
                         <CalendarRange size={20} />

@@ -12,6 +12,7 @@ import CreditLedger from './pages/CreditLedger.jsx';
 import CreditCustomers from './pages/CreditCustomers.jsx';
 import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
+import ReminderLogs from './pages/ReminderLogs.jsx';
 
 import { AuthProvider } from './context/AuthContext.jsx';
 import { DataProvider } from './context/DataContext.jsx';
@@ -31,6 +32,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="sales" element={<ShiftSales />} />
               <Route path="credit" element={<CreditCustomers />} />
               <Route path="credits" element={<CreditLedger />} />
+              <Route path="reminders" element={<ReminderLogs />} />
               <Route path="reports" element={<Reports />} />
               <Route path="settings" element={<Settings />} />
             </Route>
