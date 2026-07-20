@@ -63,6 +63,36 @@ const ReminderLogs = () => {
                     </div>
                 </div>
             </div>
+            {/* Coming Soon Notice Banner */}
+            <div className="card" style={{
+                marginBottom: '1.5rem',
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                padding: '1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem'
+            }}>
+                <div style={{
+                    background: '#3b82f6',
+                    color: '#ffffff',
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    fontSize: '0.8rem',
+                    fontWeight: '700',
+                    whiteSpace: 'nowrap'
+                }}>
+                    Coming Soon
+                </div>
+                <div>
+                    <h4 style={{ margin: '0 0 4px 0', color: '#1e3a8a', fontSize: '0.95rem' }}>
+                        Automatic Reminders — Coming Soon
+                    </h4>
+                    <p style={{ margin: 0, color: '#1d4ed8', fontSize: '0.85rem' }}>
+                        Manual WhatsApp/Call buttons are active. Automated daily reminders will be enabled in a future update.
+                    </p>
+                </div>
+            </div>
 
             {/* Controls */}
             <div className="card" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
