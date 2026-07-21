@@ -18,6 +18,57 @@ const FuelManagement = () => {
     const [showAddForm, setShowAddForm] = useState(false);
     const [newNozzle, setNewNozzle] = useState({ id: '', product: 'Petrol', flow: 0, tank: '', attendant: '' });
 
+    // Pumps State
+    const DEFAULT_PUMPS = [{ id: 'P577', name: 'Pump 577' }, { id: 'P570', name: 'Pump 570' }];
+    const [pumps, setPumps] = useState(() => {
+        const saved = localStorage.getItem('pumps_list');
+        return saved ? JSON.parse(saved) : DEFAULT_PUMPS;
+    });
+    const [newPumpName, setNewPumpName] = useState('');
+
+    useEffect(() => {
+        const fetchPumps = async () => {
+            const { data, error } = await supabase.from('pumps').select('*').eq('active', true);
+            if (!error && data && data.length > 0) {
+                setPumps(data.map(p => ({ id: p.id, name: p.name })));
+            }
+        };
+        fetchPumps();
+    }, []);
+
+    const handleAddPump = async () => {
+        if (!newPumpName.trim()) {
+            alert("Please enter a pump name.");
+            return;
+        }
+        const pumpId = 'P' + newPumpName.replace(/[^0-9a-zA-Z]/g, '');
+        const newPumpObj = { id: pumpId, name: newPumpName.trim() };
+
+        try {
+            await supabase.from('pumps').insert([{ id: pumpId, name: newPumpName.trim(), active: true }]);
+        } catch (e) {
+            console.warn("Could not insert pump to DB, saving locally:", e);
+        }
+
+        const updated = [...pumps.filter(p => p.id !== pumpId), newPumpObj];
+        setPumps(updated);
+        localStorage.setItem('pumps_list', JSON.stringify(updated));
+        setNewPumpName('');
+        alert(`Pump "${newPumpObj.name}" added successfully!`);
+    };
+
+    const handleDeletePump = async (pumpId) => {
+        if (!confirm("Are you sure you want to delete this pump?")) return;
+        try {
+            await supabase.from('pumps').delete().eq('id', pumpId);
+        } catch (e) {
+            console.warn("Error deleting from DB:", e);
+        }
+        const updated = pumps.filter(p => p.id !== pumpId);
+        setPumps(updated);
+        localStorage.setItem('pumps_list', JSON.stringify(updated));
+    };
+
     // Update Prices (Cloud)
     const handleUpdatePrices = async () => {
         try {
@@ -246,6 +297,60 @@ const FuelManagement = () => {
                         ))}
                     </tbody>
                 </table>
+                </div>
+            </div>
+
+            {/* Pumps Master List */}
+            <div className="card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h3>Active Pumps Master</h3>
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                        <label className="label">Add New Pump</label>
+                        <input
+                            type="text"
+                            className="input"
+                            placeholder="e.g. Pump 560"
+                            value={newPumpName}
+                            onChange={e => setNewPumpName(e.target.value)}
+                        />
+                    </div>
+                    <button className="btn btn-primary" style={{ height: '38px' }} onClick={handleAddPump}>
+                        <Plus size={16} style={{ marginRight: '6px' }} /> Add Pump
+                    </button>
+                </div>
+
+                <div className="table-container">
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                                <th style={{ padding: '12px', fontSize: '0.875rem', color: '#64748b' }}>Pump ID</th>
+                                <th style={{ padding: '12px', fontSize: '0.875rem', color: '#64748b' }}>Pump Name</th>
+                                <th style={{ padding: '12px', fontSize: '0.875rem', color: '#64748b' }}>Status</th>
+                                <th style={{ padding: '12px', fontSize: '0.875rem', color: '#64748b' }}>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pumps.map(p => (
+                                <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '12px', fontWeight: '500' }}>{p.id}</td>
+                                    <td style={{ padding: '12px', fontWeight: '600', color: '#0284c7' }}>{p.name}</td>
+                                    <td style={{ padding: '12px' }}>
+                                        <span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', backgroundColor: '#dcfce7', color: '#15803d', fontWeight: '600' }}>
+                                            Active
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '12px' }}>
+                                        <button onClick={() => handleDeletePump(p.id)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

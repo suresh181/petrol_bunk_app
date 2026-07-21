@@ -3,9 +3,9 @@ import { Save, AlertTriangle, Plus, Trash2, TrendingUp, User, ShieldCheck, Check
 import { utils, writeFile } from 'xlsx';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../services/supabase'; // Import Supabase
+import { supabase } from '../services/supabase';
 
-// Helper Input Component (Defined outside to prevent re-render focus loss)
+// Helper Input Component
 const InputRow = ({ label, val, setVal, readOnly = false }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
         <span style={{ fontSize: '0.9rem', color: '#64748b' }}>{label}</span>
@@ -20,10 +20,21 @@ const InputRow = ({ label, val, setVal, readOnly = false }) => (
     </div>
 );
 
+const DEFAULT_PUMPS = [
+    { id: 'P577', name: 'Pump 577' },
+    { id: 'P570', name: 'Pump 570' }
+];
+
+const DEFAULT_PUMP_ENTRY = () => ({
+    petrol1: { opening: 0, closing: 0, test: 0, cash: 0, upi: 0, card: 0, credit: 0 },
+    petrol2: { opening: 0, closing: 0, test: 0, cash: 0, upi: 0, card: 0, credit: 0 },
+    diesel1: { opening: 0, closing: 0, test: 0, cash: 0, upi: 0, card: 0, credit: 0 },
+    diesel2: { opening: 0, closing: 0, test: 0, cash: 0, upi: 0, card: 0, credit: 0 }
+});
+
 const ShiftSales = () => {
-    // 1. Defensive Destructuring
     const contextData = useData();
-    const { prices = {}, nozzles = [], customers = [], loading } = contextData || {};
+    const { prices = {}, customers = [], loading } = contextData || {};
     const { user } = useAuth();
 
     // Data Persistence Helper
@@ -31,11 +42,7 @@ const ShiftSales = () => {
         const saved = localStorage.getItem(key);
         if (saved) {
             try {
-                const parsed = JSON.parse(saved);
-                if (Array.isArray(defaultVal)) {
-                    return Array.isArray(parsed) ? parsed : defaultVal;
-                }
-                return { ...defaultVal, ...parsed };
+                return JSON.parse(saved);
             } catch (e) {
                 console.error("Error parsing saved state", e);
                 return defaultVal;
@@ -44,75 +51,77 @@ const ShiftSales = () => {
         return defaultVal;
     };
 
-    // Emergency Reset Handler
-    const handleReset = () => {
-        if (confirm("This will clear all saved shift data and reload. Use if the screen is broken/stuck.")) {
-            localStorage.removeItem('shift_general');
-            localStorage.removeItem('shift_night');
-            localStorage.removeItem('shift_diesel');
-            localStorage.removeItem('shift_readings');
-            localStorage.removeItem('shift_credits');
-            window.location.reload();
-        }
-    };
+    // Pumps Master List State
+    const [pumpsList, setPumpsList] = useState(() => loadState('pumps_list', DEFAULT_PUMPS));
+    const [showAddPumpModal, setShowAddPumpModal] = useState(false);
+    const [newPumpName, setNewPumpName] = useState('');
 
-    // Readings State
-    const [nozzleReadings, setNozzleReadings] = useState(() => loadState('shift_readings', {}));
-
-    // Initialize (Only if empty and no saved state)
+    // Fetch Pumps from DB if available
     useEffect(() => {
-        if (nozzles && nozzles.length > 0 && Object.keys(nozzleReadings).length === 0) {
-            const initial = {};
-            nozzles.forEach(n => {
-                initial[n.id] = {
-                    start: Number(n.flow) || 0,
-                    end: Number(n.flow) || 0
-                };
-            });
-            if (!localStorage.getItem('shift_readings')) {
-                setNozzleReadings(initial);
+        const fetchPumps = async () => {
+            try {
+                const { data, error } = await supabase.from('pumps').select('*').eq('active', true).order('created_at', { ascending: true });
+                if (!error && data && data.length > 0) {
+                    setPumpsList(data.map(p => ({ id: p.id, name: p.name })));
+                }
+            } catch (e) {
+                console.warn("Using local pumps fallback:", e);
             }
-        }
-    }, [nozzles]);
+        };
+        fetchPumps();
+    }, []);
 
-    // Auto-Save Effects
+    // Persist pumps list locally
     useEffect(() => {
-        localStorage.setItem('shift_readings', JSON.stringify(nozzleReadings));
-    }, [nozzleReadings]);
+        localStorage.setItem('pumps_list', JSON.stringify(pumpsList));
+    }, [pumpsList]);
 
-    const handleReadingChange = (id, field, value) => {
-        setNozzleReadings(prev => ({
-            ...prev,
-            [id]: { ...prev[id], [field]: Number(value) }
-        }));
-    };
+    // Pump Sales State (mapped by pump ID)
+    const [pumpSales, setPumpSales] = useState(() => {
+        const saved = loadState('pump_sales_data', null);
+        if (saved) return saved;
+        const initial = {};
+        DEFAULT_PUMPS.forEach(p => {
+            initial[p.id] = DEFAULT_PUMP_ENTRY();
+        });
+        return initial;
+    });
 
-    const [generalShift, setGeneralShift] = useState(() => loadState('shift_general', {
-        opening: 0, closing: 0, test: 0,
-        cash: 0, upi: 0, card: 0, credit: 0
-    }));
+    // Ensure all pumps in pumpsList have an entry state
+    useEffect(() => {
+        setPumpSales(prev => {
+            const updated = { ...prev };
+            let changed = false;
+            pumpsList.forEach(p => {
+                if (!updated[p.id]) {
+                    updated[p.id] = DEFAULT_PUMP_ENTRY();
+                    changed = true;
+                }
+            });
+            if (changed) localStorage.setItem('pump_sales_data', JSON.stringify(updated));
+            return updated;
+        });
+    }, [pumpsList]);
 
-    const [nightShift, setNightShift] = useState(() => loadState('shift_night', {
-        opening: 0, closing: 0,
-        cash: 0, upi: 0, card: 0, credit: 0
-    }));
+    // Auto-save pump sales data
+    useEffect(() => {
+        localStorage.setItem('pump_sales_data', JSON.stringify(pumpSales));
+    }, [pumpSales]);
 
-    const [dieselShift, setDieselShift] = useState(() => loadState('shift_diesel', {
-        opening: 0, closing: 0, test: 0,
-        cash: 0, upi: 0, card: 0, credit: 0
-    }));
-
-    const [todaySettlement, setTodaySettlement] = useState(0);
-    const [todayPendingInput, setTodayPendingInput] = useState('');
-
+    // Section 4: Daily Settlement Logic State (Manual UPI)
+    const [manualUpiSettlement, setManualUpiSettlement] = useState(() => loadState('manual_upi_settlement', ''));
+    const [todayPendingInput, setTodayPendingInput] = useState(() => loadState('today_pending_input', ''));
     const [yesterdayPending, setYesterdayPending] = useState(0);
 
-    // Persist State
-    useEffect(() => localStorage.setItem('shift_general', JSON.stringify(generalShift)), [generalShift]);
-    useEffect(() => localStorage.setItem('shift_night', JSON.stringify(nightShift)), [nightShift]);
-    useEffect(() => localStorage.setItem('shift_diesel', JSON.stringify(dieselShift)), [dieselShift]);
+    useEffect(() => {
+        localStorage.setItem('manual_upi_settlement', String(manualUpiSettlement));
+    }, [manualUpiSettlement]);
 
-    // Fetch Yesterday's Pending
+    useEffect(() => {
+        localStorage.setItem('today_pending_input', String(todayPendingInput));
+    }, [todayPendingInput]);
+
+    // Fetch Yesterday's Pending from DB
     useEffect(() => {
         const fetchPending = async () => {
             const { data } = await supabase.from('sales_records').select('shortage_excess').order('created_at', { ascending: false }).limit(1);
@@ -121,59 +130,91 @@ const ShiftSales = () => {
         fetchPending();
     }, []);
 
-    // --- FORMULAS ---
+    // Helper to update a field inside a specific pump & slot
+    const updateEntry = (pumpId, slot, field, value) => {
+        setPumpSales(prev => ({
+            ...prev,
+            [pumpId]: {
+                ...prev[pumpId],
+                [slot]: {
+                    ...prev[pumpId]?.[slot],
+                    [field]: Number(value)
+                }
+            }
+        }));
+    };
 
-    // 1. General Shift Petrol Calculation
-    const litres_general = Math.max(0, generalShift.closing - generalShift.opening);
-    // SAFE ACCESS to prices
-    const sale_amount_general = litres_general * (prices?.petrol || 0);
-    const total_collection_general = Number(generalShift.cash) + Number(generalShift.upi) + Number(generalShift.card) + Number(generalShift.credit);
-    const ms_general_short_excess = sale_amount_general - total_collection_general;
+    // Calculate figures for an entry slot
+    const getEntryMetrics = (entry, fuelType) => {
+        const opening = Number(entry?.opening || 0);
+        const closing = Number(entry?.closing || 0);
+        const test = Number(entry?.test || 0);
+        const litres = Math.max(0, closing - opening - test);
+        const rate = fuelType === 'Petrol' ? Number(prices?.petrol || 0) : Number(prices?.diesel || 0);
+        const saleAmount = litres * rate;
 
-    // Test Sample Logic (MS) corresponds directly to test returned to tank
+        const cash = Number(entry?.cash || 0);
+        const upi = Number(entry?.upi || 0);
+        const card = Number(entry?.card || 0);
+        const credit = Number(entry?.credit || 0);
+        const totalCollections = cash + upi + card + credit;
+        const shortageExcess = saleAmount - totalCollections;
 
-    // 2. Night Shift Petrol Calculation
-    const litres_night = Math.max(0, nightShift.closing - nightShift.opening);
-    const sale_amount_night = litres_night * (prices?.petrol || 0);
-    const total_collection_night = Number(nightShift.cash) + Number(nightShift.upi) + Number(nightShift.card) + Number(nightShift.credit);
-    const ms_night_short_excess = sale_amount_night - total_collection_night;
+        return { litres, saleAmount, cash, upi, card, credit, totalCollections, shortageExcess };
+    };
 
-    // 3. Diesel 24h Calculation
-    const diesel_litres_24hrs = Math.max(0, dieselShift.closing - dieselShift.opening);
-    const diesel_sale_amount = diesel_litres_24hrs * (prices?.diesel || 0);
-    const diesel_total_collection = Number(dieselShift.cash) + Number(dieselShift.upi) + Number(dieselShift.card) + Number(dieselShift.credit);
-    const hsd_short_excess = diesel_sale_amount - diesel_total_collection;
+    // Aggregates across ALL pumps and slots
+    let totalPetrolLitres = 0;
+    let totalDieselLitres = 0;
+    let totalPetrolSaleAmount = 0;
+    let totalDieselSaleAmount = 0;
+    let totalCashCollected = 0;
+    let totalUpiCollected = 0;
+    let totalCardCollected = 0;
+    let totalCreditCollected = 0;
 
-    // Test Sample Logic (HSD) corresponds directly to test returned to tank
+    pumpsList.forEach(p => {
+        const pData = pumpSales[p.id] || DEFAULT_PUMP_ENTRY();
 
-    // 4. Today Pending + Settlement Logic (UPI-only)
-    const total_calc = Number(generalShift.upi || 0) + Number(nightShift.upi || 0) + Number(dieselShift.upi || 0) + Number(yesterdayPending) - Number(todayPendingInput || 0);
-    const settlement_difference = Number(todaySettlement || 0) - total_calc;
+        ['petrol1', 'petrol2'].forEach(slot => {
+            const m = getEntryMetrics(pData[slot], 'Petrol');
+            totalPetrolLitres += m.litres;
+            totalPetrolSaleAmount += m.saleAmount;
+            totalCashCollected += m.cash;
+            totalUpiCollected += m.upi;
+            totalCardCollected += m.card;
+            totalCreditCollected += m.credit;
+        });
 
-    // Aggregates for Reporting
-    const totalSaleAmount = sale_amount_general + sale_amount_night + diesel_sale_amount;
-    const shortage = 0; // Deprecated by new logic, but needed for types? won't use.
+        ['diesel1', 'diesel2'].forEach(slot => {
+            const m = getEntryMetrics(pData[slot], 'Diesel');
+            totalDieselLitres += m.litres;
+            totalDieselSaleAmount += m.saleAmount;
+            totalCashCollected += m.cash;
+            totalUpiCollected += m.upi;
+            totalCardCollected += m.card;
+            totalCreditCollected += m.credit;
+        });
+    });
 
+    const totalSaleAmount = totalPetrolSaleAmount + totalDieselSaleAmount;
+    const totalCollections = totalCashCollected + totalUpiCollected + totalCardCollected + totalCreditCollected;
+    const overallShortageExcess = totalSaleAmount - totalCollections;
 
-    // --- HELPERS FOR UI ---
-    // --- HELPERS FOR UI ---
-    // (InputRow moved outside)
+    // Reconciliation formula with Manual UPI
+    const manualUpiVal = Number(manualUpiSettlement || 0);
+    const todayPendingVal = Number(todayPendingInput || 0);
 
+    // Difference = (Manual Bank UPI + Yesterday Pending) - (System Recorded Pump UPI + Today Pending)
+    const settlement_difference = (manualUpiVal + Number(yesterdayPending || 0)) - (totalUpiCollected + todayPendingVal);
 
-    // Credit Logic (Updated to be simple list)
-    // Note: We are not auto-syncing credits to the 3-shift inputs directly to avoid complexity loop.
-    // User must manually type the Credit Total into the respective Shift Box based on their bills.
-    // This adheres to "Inputs already exist" (Manual Entry) workflow usually preferred by operators for control.
-
+    // Credit Helper Bills State
     const [creditBills, setCreditBills] = useState(() => loadState('shift_credits', []));
     const [newBill, setNewBill] = useState({ customerId: '', billAmount: '', paidAmount: '', product: 'Petrol' });
 
     useEffect(() => localStorage.setItem('shift_credits', JSON.stringify(creditBills)), [creditBills]);
 
-    // Helper to parse numbers with commas
     const parseAmt = (val) => parseFloat(String(val).replace(/,/g, '')) || 0;
-
-    // Calculate Net Credit automatically
     const netCredit = parseAmt(newBill.billAmount) - parseAmt(newBill.paidAmount);
 
     const handleAddBill = async () => {
@@ -190,7 +231,6 @@ const ShiftSales = () => {
             const customer = customers.find(c => c.id == newBill.customerId);
             if (!customer) return;
 
-            // Validation
             if (netCredit < 0) {
                 alert("Paid amount cannot be more than Bill amount");
                 return;
@@ -200,13 +240,12 @@ const ShiftSales = () => {
                 if (!confirm("Net Credit is 0 (Fully Paid). Do you still want to log this?")) return;
             }
 
-            // 1. Insert into Supabase
             const { data, error } = await supabase
                 .from('credit_transactions')
                 .insert([{
                     customer_id: customer.id,
                     customer_name: customer.name,
-                    amount: netCredit, // Only the credit part is added to debt
+                    amount: netCredit,
                     created_at: new Date(),
                     is_settled: false,
                     notes: `Shift Sale: ${newBill.product}. Bill: ₹${newBill.billAmount}, Paid: ₹${newBill.paidAmount}`
@@ -216,10 +255,9 @@ const ShiftSales = () => {
             if (error) throw error;
             if (!data || data.length === 0) throw new Error("No data returned from insert");
 
-            // 2. Update Local List
             setCreditBills([...creditBills, { ...data[0], customerName: customer.name, total: netCredit }]);
             setNewBill({ ...newBill, billAmount: '', paidAmount: '' });
-            alert(`Bill Added! Credit: ₹${netCredit}. Please add this to Shift Credit.`);
+            alert(`Bill Added! Credit: ₹${netCredit}. Please add this to your Pump Credit collection row.`);
 
         } catch (err) {
             console.error("Add Bill Error:", err);
@@ -233,340 +271,221 @@ const ShiftSales = () => {
         setCreditBills(creditBills.filter(b => b.id !== id));
     };
 
-    // EXPORT & CLOSE SHIFT (Updated for New Logic)
+    const handleAddPump = async () => {
+        if (!newPumpName.trim()) {
+            alert("Please enter a valid Pump Name.");
+            return;
+        }
+
+        const pumpId = 'P' + newPumpName.replace(/[^0-9a-zA-Z]/g, '');
+        const newPumpObj = { id: pumpId, name: newPumpName.trim() };
+
+        try {
+            await supabase.from('pumps').insert([{ id: pumpId, name: newPumpName.trim(), active: true }]);
+        } catch (e) {
+            console.warn("Could not insert pump to DB, saving locally:", e);
+        }
+
+        setPumpsList(prev => [...prev.filter(p => p.id !== pumpId), newPumpObj]);
+        setNewPumpName('');
+        setShowAddPumpModal(false);
+    };
+
+    const handleReset = () => {
+        if (confirm("This will clear saved daily sales entries and reload.")) {
+            localStorage.removeItem('pump_sales_data');
+            localStorage.removeItem('manual_upi_settlement');
+            localStorage.removeItem('today_pending_input');
+            localStorage.removeItem('shift_credits');
+            window.location.reload();
+        }
+    };
+
+    // Close Shift & Export Report
     const handleCloseShift = async () => {
-        if (!confirm("Confirm Close Daily Reconciliation? This will save all shift data and download the Excel report.")) return;
+        if (!confirm("Confirm Close Daily Reconciliation? This will save all pump data and download the report.")) return;
 
-        const today_pending = Number(todayPendingInput || 0);
-
-        // 1. Prepare Data Record for DB
         const record = {
             shift_date: new Date(),
             shift_runner: user?.name || 'Unknown',
-
-            // Storing aggregates
-            petrol_sold: litres_general + litres_night,
-            diesel_sold: diesel_litres_24hrs,
+            petrol_sold: totalPetrolLitres,
+            diesel_sold: totalDieselLitres,
             total_amount: totalSaleAmount,
-
-            // "Today Pending" stored as shortage_excess
-            shortage_excess: today_pending,
-
-            // Store Today Settlement
-            today_settlement_amount: Number(todaySettlement || 0),
-
-            // Store Test Samples
-            petrol_test_samples: Number(generalShift.test || 0),
-            diesel_test_samples: Number(dieselShift.test || 0),
-
-            cash_collected: Number(generalShift.cash) + Number(nightShift.cash) + Number(dieselShift.cash),
-            upi_collected: Number(generalShift.upi) + Number(nightShift.upi) + Number(dieselShift.upi),
-            card_collected: Number(generalShift.card) + Number(nightShift.card) + Number(dieselShift.card),
+            shortage_excess: todayPendingVal,
+            today_settlement_amount: manualUpiVal,
+            cash_collected: totalCashCollected,
+            upi_collected: manualUpiVal,
+            card_collected: totalCardCollected,
         };
 
-        // 2. Prepare Excel Data (New Structure)
-        const excelData = [
-            { "Metric": "DAILY RECONCILIATION REPORT", "Value": "---" },
+        // Prepare Excel Report Rows
+        const excelRows = [
+            { "Metric": "DAILY RECONCILIATION REPORT (PUMP-BASED)", "Value": "---" },
             { "Metric": "Date", "Value": new Date().toLocaleDateString() },
             { "Metric": "Manager", "Value": user?.name || 'Staff' },
-            { "Metric": "", "Value": "" },
-
-            // General Shift Petrol
-            { "Metric": "1. GENERAL SHIFT (PETROL)", "Value": "---" },
-            { "Metric": "Opening Reading", "Value": generalShift.opening },
-            { "Metric": "Closing Reading", "Value": generalShift.closing },
-            { "Metric": "Test Sample", "Value": Number(generalShift.test || 0) },
-            { "Metric": "Litres Sold", "Value": litres_general.toFixed(2) },
-            { "Metric": "Expected Amount (₹)", "Value": sale_amount_general.toFixed(2) },
-            { "Metric": "Collections", "Value": `Cash: ${generalShift.cash}, UPI: ${generalShift.upi}, Card: ${generalShift.card}, Credit: ${generalShift.credit}` },
-            { "Metric": "Shortage/Excess", "Value": ms_general_short_excess.toFixed(2) },
-            { "Metric": "", "Value": "" },
-
-            // Night Shift Petrol
-            { "Metric": "2. NIGHT SHIFT (PETROL)", "Value": "---" },
-            { "Metric": "Opening Reading", "Value": nightShift.opening },
-            { "Metric": "Closing Reading", "Value": nightShift.closing },
-            { "Metric": "Litres Sold", "Value": litres_night.toFixed(2) },
-            { "Metric": "Expected Amount (₹)", "Value": sale_amount_night.toFixed(2) },
-            { "Metric": "Collections", "Value": `Cash: ${nightShift.cash}, UPI: ${nightShift.upi}, Card: ${nightShift.card}, Credit: ${nightShift.credit}` },
-            { "Metric": "Shortage/Excess", "Value": ms_night_short_excess.toFixed(2) },
-            { "Metric": "", "Value": "" },
-
-            // Diesel Shift
-            { "Metric": "3. DIESEL (24 HOURS)", "Value": "---" },
-            { "Metric": "Yesterday Closing", "Value": dieselShift.opening },
-            { "Metric": "Today Closing", "Value": dieselShift.closing },
-            { "Metric": "Test Sample", "Value": Number(dieselShift.test || 0) },
-            { "Metric": "Litres Sold", "Value": diesel_litres_24hrs.toFixed(2) },
-            { "Metric": "Expected Amount (₹)", "Value": diesel_sale_amount.toFixed(2) },
-            { "Metric": "Collections", "Value": `Cash: ${dieselShift.cash}, UPI: ${dieselShift.upi}, Card: ${dieselShift.card}, Credit: ${dieselShift.credit}` },
-            { "Metric": "Shortage/Excess", "Value": hsd_short_excess.toFixed(2) },
-            { "Metric": "", "Value": "" },
-
-            // Final Pending
-            { "Metric": "4. DAILY SETTLEMENT (UPI)", "Value": "---" },
-            { "Metric": "MS General UPI", "Value": Number(generalShift.upi || 0).toFixed(2) },
-            { "Metric": "MS Night UPI", "Value": Number(nightShift.upi || 0).toFixed(2) },
-            { "Metric": "HSD UPI", "Value": Number(dieselShift.upi || 0).toFixed(2) },
-            { "Metric": "Yesterday Pending", "Value": yesterdayPending.toFixed(2) },
-            { "Metric": "Today Pending (Input)", "Value": Number(todayPendingInput || 0).toFixed(2) },
-            { "Metric": "Total Calculated", "Value": total_calc.toFixed(2) },
-            { "Metric": "Today Settlement", "Value": Number(todaySettlement || 0).toFixed(2) },
-            { "Metric": "DIFFERENCE", "Value": settlement_difference.toFixed(2) },
-            { "Metric": "", "Value": "" },
-
-            // Overall
-            { "Metric": "OVERALL TOTALS", "Value": "---" },
-            { "Metric": "Total Petrol Sold", "Value": (litres_general + litres_night).toFixed(2) },
-            { "Metric": "Total Diesel Sold", "Value": diesel_litres_24hrs.toFixed(2) },
-            { "Metric": "Total Sales Amount", "Value": totalSaleAmount.toFixed(2) }
+            { "Metric": "", "Value": "" }
         ];
 
-        // 3. Save to Supabase
-        const { error } = await supabase.from('sales_records').insert([record]);
-        if (error) {
-            alert("Error saving database record: " + error.message);
-            // We continue to Excel download even if DB fails, or we could return. 
-            // Better to warn but allow download so data isn't lost.
+        pumpsList.forEach(p => {
+            const pData = pumpSales[p.id] || DEFAULT_PUMP_ENTRY();
+            excelRows.push({ "Metric": `=== ${p.name.toUpperCase()} ===`, "Value": "---" });
+
+            const slots = [
+                { key: 'petrol1', label: 'Petrol 1', type: 'Petrol' },
+                { key: 'petrol2', label: 'Petrol 2', type: 'Petrol' },
+                { key: 'diesel1', label: 'Diesel 1', type: 'Diesel' },
+                { key: 'diesel2', label: 'Diesel 2', type: 'Diesel' }
+            ];
+
+            slots.forEach(s => {
+                const m = getEntryMetrics(pData[s.key], s.type);
+                excelRows.push({ "Metric": `${s.label} Litres Sold`, "Value": m.litres.toFixed(2) });
+                excelRows.push({ "Metric": `${s.label} Expected Amount (₹)`, "Value": m.saleAmount.toFixed(2) });
+                excelRows.push({ "Metric": `${s.label} Collections`, "Value": `Cash: ${m.cash}, UPI: ${m.upi}, Card: ${m.card}, Credit: ${m.credit}` });
+                excelRows.push({ "Metric": `${s.label} Shortage/Excess`, "Value": m.shortageExcess.toFixed(2) });
+            });
+            excelRows.push({ "Metric": "", "Value": "" });
+        });
+
+        // Add Settlement Section
+        excelRows.push(
+            { "Metric": "DAILY SETTLEMENT (MANUAL UPI)", "Value": "---" },
+            { "Metric": "System Recorded Pump UPI Sum", "Value": totalUpiCollected.toFixed(2) },
+            { "Metric": "Manual Bank UPI Settlement", "Value": manualUpiVal.toFixed(2) },
+            { "Metric": "Yesterday Pending", "Value": Number(yesterdayPending).toFixed(2) },
+            { "Metric": "Today Pending (Input)", "Value": todayPendingVal.toFixed(2) },
+            { "Metric": "Reconciliation Difference", "Value": settlement_difference.toFixed(2) },
+            { "Metric": "", "Value": "" },
+            { "Metric": "OVERALL TOTALS", "Value": "---" },
+            { "Metric": "Total Petrol Sold (L)", "Value": totalPetrolLitres.toFixed(2) },
+            { "Metric": "Total Diesel Sold (L)", "Value": totalDieselLitres.toFixed(2) },
+            { "Metric": "Total Sales Amount (₹)", "Value": totalSaleAmount.toFixed(2) }
+        );
+
+        // Save DB Record
+        try {
+            const { error } = await supabase.from('sales_records').insert([record]);
+            if (error) console.error("Database save error:", error);
+        } catch (e) {
+            console.error("DB error:", e);
         }
 
-        // 4. Update Stock
-        if (prices.id) {
-            const currentPetrolStock = prices.petrol_stock || 0;
-            const currentDieselStock = prices.diesel_stock || 0;
-
-            // Stock Logic: Reduced by Sales AND Net Test Sample (Taken - Returned)
-            // Because 'Taken' is removed from tank. 'Returned' is added back.
-            // Litres Sold is already purely (Closing - Opening).
-            // Wait, (Closing - Opening) INCLUDES the test sample if it passed through the meter.
-            // If test sample goes through meter:
-            //   Meter says 100L. 5L was test. 
-            //   Litres Sold = 100L.
-            //   User wants: "Litres Sold" to be 100L?
-            //   User said: "ms_general_litres = closing - opening". 
-            //   So if I pump 5L test, meter advances 5L. Litres Sold = 5L.
-            //   The formula for SALE AMOUNT uses this litres.
-            //   Refinement: "Daily test sample is not a sale. It should NOT affect meter sale calculation."
-            //   This implies: Litres Sold SHOULD be (Closing - Opening) - Test Net?
-            //   User said: "ms_general_litres = closing - opening". STRICTLY.
-            //   And "ms_general_sale_amount = ms_general_litres * rate".
-            //   BUT "Daily test sample is not a sale".
-            //   Contradiction? Or maybe the user *manually* excludes test sample from "closing reading"?
-            //   No, inputs are readings. 
-            //   If I follow strict user formulas:
-            //   Litres = 10L (Test). Sale = 10 * 100 = 1000. 
-            //   But I have 0 cash. Shortage = 1000.
-            //   This implies user formulas might be missing the deduction, OR test sample doesn't move meter?
-            //   Standard pump: Test sample moves meter.
-            //   Let's re-read: "Daily test sample... should NOT affect meter sale calculation."
-            //   This usually means: Sale Litres = (Meter Diff) - (Test Sample).
-            //   BUT user explicitly gave Formula: "ms_general_litres = closing_reading_general - opening_reading_general".
-            //   AND "ms_general = ms_general_sale_amount - ms_general_total_collection".
-            //   If I follow this blindly, a test sample causes a shortage.
-            //   However, if I look at "4) DAILY TEST SAMPLE LOGIC... It is only for stock/sump adjustment".
-            //   Maybe I should stick to the user's explicit formulas for now, even if it creates a shortage artifact?
-            //   Actually, usually 'shortage' is where the test sample is explained.
-            //   Let's stick to the EXPLICIT formulas provided. 
-            //   Stock Update: 
-            //   If Meter Diff is 100L. 5L was test (returned). Real stock out = 100L? No, 5L returned. Real out = 95L.
-            //   So Stock = Stock - (Meter Diff - Test Returned).
-            //   Or more precisely: Stock = Stock - (Meter Diff) + (Test Returned).
-            //   User Rule: "ms_stock = ms_stock - ms_net_test_sample".
-            //   Wait, ms_net = Taken - Returned.
-            //   If Taken=5, Returned=5. Net=0. Stock change = 0.
-            //   But Meter Diff = 5. 
-            //   So Stock = Stock - Meter Diff - Net?
-            //   If I take 5L (Meter moves 5). Return 5L. Net=0.
-            //   Tank lost 5L through meter, gained 5L from return. Net 0 change.
-            //   My code: `petrol_stock: currentPetrolStock - (litres_general + litres_night)`
-            //   This `litres_general` is Meter Diff.
-            //   If Net is 0, we subtract Meter Diff (5L). Access stock drops by 5L.
-            //   But we returned it!
-            //   So we must ADD back the returned amount? Or User Formula "ms_stock = ms_stock - ms_net_test_sample" is the ONLY change?
-            //   No, "If stock module exists, update stock: ms_stock = ms_stock - ms_net_test_sample".
-            //   THIS IS LIKELY ADDITIONAL to the sale deduction.
-            //   Actually, "ms_stock = ms_stock - ms_net_test_sample" implies ONLY net sample affects? No, strict user requirement might be isolated to that section.
-            //   Let's apply logically:
-            //   Stock should decrease by dispensed fuel that is NOT returned.
-            //   Dispensed = Meter Diff.
-            //   Returned = Test Returned.
-            //   So Stock -= (Meter Diff - Returned).
-            //   Which is equivalent to: Stock -= (Meter Diff - (Taken - Net)) ? No.
-            //   Let's simplify: Stock -= (Litres Sold - Test Returned).
-
-            await supabase.from('fuel_prices').update({
-                petrol_stock: currentPetrolStock - (litres_general + litres_night) + (Number(generalShift.test) || 0),
-                diesel_stock: currentDieselStock - diesel_litres_24hrs + (Number(dieselShift.test) || 0)
-            }).eq('id', prices.id);
-        }
-
-        // 5. Generate & Download Excel
+        // Export Excel
         try {
             const wb = utils.book_new();
-            const ws = utils.json_to_sheet(excelData);
+            const ws = utils.json_to_sheet(excelRows);
+            ws['!cols'] = [{ wch: 35 }, { wch: 40 }];
+            utils.book_append_sheet(wb, ws, "Daily Pump Reconciliation");
+            writeFile(wb, `Pump_Reconciliation_${new Date().toISOString().slice(0, 10)}.xlsx`);
 
-            // Adjust column widths for better readability (optional but nice)
-            const wscols = [{ wch: 30 }, { wch: 40 }];
-            ws['!cols'] = wscols;
+            alert("Saved Record & Downloaded Excel Report!");
 
-            utils.book_append_sheet(wb, ws, "Daily Reconciliation");
-            writeFile(wb, `Daily_Reconciliation_${new Date().toISOString().slice(0, 10)}.xlsx`);
-
-            alert("Saved to Database & Excel Report Downloaded!");
-
-            // Clear only Shift State (Prevent logging out)
-            localStorage.removeItem('shift_general');
-            localStorage.removeItem('shift_night');
-            localStorage.removeItem('shift_diesel');
+            localStorage.removeItem('pump_sales_data');
+            localStorage.removeItem('manual_upi_settlement');
+            localStorage.removeItem('today_pending_input');
             localStorage.removeItem('shift_credits');
 
-            // Reload to reset local component state
             window.location.reload();
         } catch (err) {
-            console.error(err);
             alert("Error generating Excel: " + err.message);
         }
     };
 
-    if (loading) return <div>Loading...</div>;
+    if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading Pump Sales...</div>;
 
     return (
-        <div style={{ maxWidth: '1000px', margin: '0 auto', paddingBottom: '3rem' }}>
+        <div style={{ maxWidth: '1100px', margin: '0 auto', paddingBottom: '3rem' }}>
+            {/* Page Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '1rem' }}>
                 <div>
-                    <h1 style={{ marginBottom: '0.2rem' }}>Daily Reconciliation</h1>
+                    <h1 style={{ marginBottom: '0.2rem' }}>Daily Pump Sales & Reconciliation</h1>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.9rem' }}>
                         <ShieldCheck size={16} />
                         <span>Manager: <b>{user?.name || 'Staff'}</b></span>
                     </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Today's Date</div>
-                    <div style={{ fontWeight: 'bold' }}>{new Date().toLocaleDateString()}</div>
-                    <button onClick={handleReset} style={{ fontSize: '0.7rem', color: 'red', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', marginTop: '5px' }}>
-                        Reset Local Data
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    <button className="btn btn-primary" onClick={() => setShowAddPumpModal(true)}>
+                        <Plus size={16} style={{ marginRight: '6px' }} /> Add Pump
+                    </button>
+                    <button onClick={handleReset} style={{ fontSize: '0.8rem', color: '#ef4444', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>
+                        Reset Entry Data
                     </button>
                 </div>
             </div>
 
+            {/* Layout Grid */}
             <div className="page-grid">
-
-                {/* LEFT COLUMN: The 3 Main Sections */}
+                {/* LEFT COLUMN: Pumps Cards */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                    {pumpsList.map(pump => {
+                        const pData = pumpSales[pump.id] || DEFAULT_PUMP_ENTRY();
 
-                    {/* 1. GENERAL SHIFT - PETROL */}
-                    <div className="card" style={{ borderLeft: '4px solid #3b82f6', position: 'relative' }}>
-                        <div style={{ position: 'absolute', right: '10px', top: '10px', background: '#eff6ff', color: '#1d4ed8', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>PETROL</div>
-                        <h3 style={{ color: '#1d4ed8', marginBottom: '1rem' }}>1. General Shift</h3>
-                        <div className="section-grid">
-                            <div>
-                                <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
-                                <InputRow label="Opening Reading" val={generalShift.opening} setVal={v => setGeneralShift({ ...generalShift, opening: v })} />
-                                <InputRow label="Closing Reading" val={generalShift.closing} setVal={v => setGeneralShift({ ...generalShift, closing: v })} />
-                                <InputRow label="Test Sample" val={generalShift.test} setVal={v => setGeneralShift({ ...generalShift, test: v })} />
+                        const renderSlotCard = (slotKey, title, fuelType) => {
+                            const entry = pData[slotKey] || {};
+                            const metrics = getEntryMetrics(entry, fuelType);
+                            const cardBorder = fuelType === 'Petrol' ? '#3b82f6' : '#f59e0b';
+                            const badgeBg = fuelType === 'Petrol' ? '#eff6ff' : '#fffbeb';
+                            const badgeColor = fuelType === 'Petrol' ? '#1d4ed8' : '#b45309';
 
-                                <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: '#3b82f6', fontSize: '0.9rem' }}>
-                                    Litres Sold: {litres_general.toFixed(2)}
-                                </div>
-                                <div style={{ marginTop: '0.2rem', fontWeight: 'bold', textAlign: 'right', color: '#1d4ed8' }}>
-                                    Expected Amount: ₹ {sale_amount_general.toFixed(2)}
-                                </div>
-                                <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', textAlign: 'right', color: '#64748b' }}>
-                                    Test Sample Returned: {generalShift.test || 0} L (Stock Adj)
-                                </div>
-                            </div>
-                            <div>
-                                <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Collections</h4>
-                                <InputRow label="Cash" val={generalShift.cash} setVal={v => setGeneralShift({ ...generalShift, cash: v })} />
-                                <InputRow label="UPI" val={generalShift.upi} setVal={v => setGeneralShift({ ...generalShift, upi: v })} />
-                                <InputRow label="Card" val={generalShift.card} setVal={v => setGeneralShift({ ...generalShift, card: v })} />
-                                <InputRow label="Credit" val={generalShift.credit} setVal={v => setGeneralShift({ ...generalShift, credit: v })} />
-                                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ fontSize: '0.85rem' }}>Shortage/Excess:</span>
-                                    <span style={{ fontWeight: 'bold', color: ms_general_short_excess > 0 ? 'red' : 'green' }}>
-                                        {ms_general_short_excess.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                            return (
+                                <div key={slotKey} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '1rem', marginBottom: '1rem' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                        <h4 style={{ margin: 0, color: badgeColor, fontSize: '0.9rem' }}>{title} ({fuelType})</h4>
+                                        <span style={{ background: badgeBg, color: badgeColor, padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                            Rate: ₹{fuelType === 'Petrol' ? prices?.petrol || 0 : prices?.diesel || 0}/L
+                                        </span>
+                                    </div>
+                                    <div className="section-grid">
+                                        <div>
+                                            <h5 style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Readings</h5>
+                                            <InputRow label="Opening Reading" val={entry.opening} setVal={v => updateEntry(pump.id, slotKey, 'opening', v)} />
+                                            <InputRow label="Closing Reading" val={entry.closing} setVal={v => updateEntry(pump.id, slotKey, 'closing', v)} />
+                                            <InputRow label="Test Sample (L)" val={entry.test} setVal={v => updateEntry(pump.id, slotKey, 'test', v)} />
 
-                    {/* 2. NIGHT SHIFT - PETROL */}
-                    <div className="card" style={{ borderLeft: '4px solid #1e40af', position: 'relative' }}>
-                        <div style={{ position: 'absolute', right: '10px', top: '10px', background: '#eff6ff', color: '#1e3a8a', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>PETROL</div>
-                        <h3 style={{ color: '#1e3a8a', marginBottom: '1rem' }}>2. Night Shift</h3>
-                        <div className="section-grid">
-                            <div>
-                                <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
-                                <InputRow label="Opening Reading" val={nightShift.opening} setVal={v => setNightShift({ ...nightShift, opening: v })} />
-                                <InputRow label="Closing Reading" val={nightShift.closing} setVal={v => setNightShift({ ...nightShift, closing: v })} />
-                                <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: '#1e40af', fontSize: '0.9rem' }}>
-                                    Litres Sold: {litres_night.toFixed(2)}
+                                            <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: badgeColor, fontSize: '0.85rem' }}>
+                                                Litres Sold: {metrics.litres.toFixed(2)} L
+                                            </div>
+                                            <div style={{ marginTop: '0.2rem', fontWeight: 'bold', textAlign: 'right', color: '#1e293b', fontSize: '0.9rem' }}>
+                                                Expected Amt: ₹ {metrics.saleAmount.toFixed(2)}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <h5 style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Collections</h5>
+                                            <InputRow label="Cash" val={entry.cash} setVal={v => updateEntry(pump.id, slotKey, 'cash', v)} />
+                                            <InputRow label="UPI" val={entry.upi} setVal={v => updateEntry(pump.id, slotKey, 'upi', v)} />
+                                            <InputRow label="Card" val={entry.card} setVal={v => updateEntry(pump.id, slotKey, 'card', v)} />
+                                            <InputRow label="Credit" val={entry.credit} setVal={v => updateEntry(pump.id, slotKey, 'credit', v)} />
+                                            <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                                                <span>Diff (Shortage):</span>
+                                                <span style={{ fontWeight: 'bold', color: metrics.shortageExcess > 0 ? '#ef4444' : '#10b981' }}>
+                                                    ₹ {metrics.shortageExcess.toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div style={{ marginTop: '0.2rem', fontWeight: 'bold', textAlign: 'right', color: '#1e3a8a' }}>
-                                    Expected Amount: ₹ {sale_amount_night.toFixed(2)}
-                                </div>
-                            </div>
-                            <div>
-                                <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Collections</h4>
-                                <InputRow label="Cash" val={nightShift.cash} setVal={v => setNightShift({ ...nightShift, cash: v })} />
-                                <InputRow label="UPI" val={nightShift.upi} setVal={v => setNightShift({ ...nightShift, upi: v })} />
-                                <InputRow label="Card" val={nightShift.card} setVal={v => setNightShift({ ...nightShift, card: v })} />
-                                <InputRow label="Credit" val={nightShift.credit} setVal={v => setNightShift({ ...nightShift, credit: v })} />
-                                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ fontSize: '0.85rem' }}>Shortage/Excess:</span>
-                                    <span style={{ fontWeight: 'bold', color: ms_night_short_excess > 0 ? 'red' : 'green' }}>
-                                        {ms_night_short_excess.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                            );
+                        };
 
-                    {/* 3. DIESEL - 24 HOURS */}
-                    <div className="card" style={{ borderLeft: '4px solid #f59e0b', position: 'relative' }}>
-                        <div style={{ position: 'absolute', right: '10px', top: '10px', background: '#fffbeb', color: '#b45309', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>DIESEL</div>
-                        <h3 style={{ color: '#d97706', marginBottom: '1rem' }}>3. Diesel (24 Hours)</h3>
-                        <div className="section-grid">
-                            <div>
-                                <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Readings</h4>
-                                <InputRow label="Yesterday Closing" val={dieselShift.opening} setVal={v => setDieselShift({ ...dieselShift, opening: v })} />
-                                <InputRow label="Today Closing" val={dieselShift.closing} setVal={v => setDieselShift({ ...dieselShift, closing: v })} />
-                                <InputRow label="Test Sample" val={dieselShift.test} setVal={v => setDieselShift({ ...dieselShift, test: v })} />
-
-                                <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: '#d97706', fontSize: '0.9rem' }}>
-                                    Litres Sold: {diesel_litres_24hrs.toFixed(2)}
-                                </div>
-                                <div style={{ marginTop: '0.2rem', fontWeight: 'bold', textAlign: 'right', color: '#b45309' }}>
-                                    Expected Amount: ₹ {diesel_sale_amount.toFixed(2)}
-                                </div>
-                                <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', textAlign: 'right', color: '#64748b' }}>
-                                    Test Sample Returned: {dieselShift.test || 0} L (Stock Adj)
-                                </div>
+                        return (
+                            <div key={pump.id} className="card" style={{ borderLeft: '5px solid #0284c7' }}>
+                                <h3 style={{ color: '#0369a1', marginBottom: '1rem', fontSize: '1.2rem' }}>{pump.name}</h3>
+                                {renderSlotCard('petrol1', 'Petrol Entry 1', 'Petrol')}
+                                {renderSlotCard('petrol2', 'Petrol Entry 2', 'Petrol')}
+                                {renderSlotCard('diesel1', 'Diesel Entry 1', 'Diesel')}
+                                {renderSlotCard('diesel2', 'Diesel Entry 2', 'Diesel')}
                             </div>
-                            <div>
-                                <h4 style={{ fontSize: '0.85rem', marginBottom: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Collections</h4>
-                                <InputRow label="Cash" val={dieselShift.cash} setVal={v => setDieselShift({ ...dieselShift, cash: v })} />
-                                <InputRow label="UPI" val={dieselShift.upi} setVal={v => setDieselShift({ ...dieselShift, upi: v })} />
-                                <InputRow label="Card" val={dieselShift.card} setVal={v => setDieselShift({ ...dieselShift, card: v })} />
-                                <InputRow label="Credit" val={dieselShift.credit} setVal={v => setDieselShift({ ...dieselShift, credit: v })} />
-                                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ fontSize: '0.85rem' }}>Shortage/Excess:</span>
-                                    <span style={{ fontWeight: 'bold', color: hsd_short_excess > 0 ? 'red' : 'green' }}>
-                                        {hsd_short_excess.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                        );
+                    })}
 
-                    {/* Credit Entry (Helper) */}
+                    {/* Credit Helper Card */}
                     <div className="card">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3>Add Credit Bill</h3>
-                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Helper for adding to DB</span>
+                            <h3>Add Credit Bill Helper</h3>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Log Customer Credit Debt</span>
                         </div>
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
                             <select className="input" value={newBill.customerId} onChange={e => setNewBill({ ...newBill, customerId: e.target.value })} style={{ width: '180px' }}>
                                 <option value="">Select Customer</option>
                                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -592,7 +511,6 @@ const ShiftSales = () => {
                             </div>
                             <button className="btn btn-primary" onClick={handleAddBill}><Plus size={18} /></button>
                         </div>
-                        {/* Simple List */}
                         <div style={{ marginTop: '10px', fontSize: '0.85rem' }}>
                             {creditBills.length > 0 ? (
                                 creditBills.map(b => (
@@ -601,84 +519,124 @@ const ShiftSales = () => {
                                         <span><b>₹{Number(b.total || b.amount).toFixed(2)}</b> <Trash2 size={12} color="red" style={{ cursor: 'pointer', marginLeft: '5px' }} onClick={() => handleDeleteBill(b.id)} /></span>
                                     </div>
                                 ))
-                            ) : <span style={{ color: '#cbd5e1' }}>No new credit bills added.</span>}
+                            ) : <span style={{ color: '#cbd5e1' }}>No credit bills added.</span>}
                         </div>
                     </div>
-
                 </div>
 
-                {/* RIGHT COLUMN: Summary & Pending Logic */}
+                {/* RIGHT COLUMN: Daily Settlement (Manual UPI) & Overall Summary */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-
-                    {/* 4. TODAY PENDING LOGIC */}
+                    {/* Section 4: Daily Settlement Logic (Manual UPI) */}
                     <div className="card" style={{ background: '#f8fafc', border: '1px solid #cbd5e1' }}>
-                        <h3 style={{ marginBottom: '1rem', color: '#334155' }}>4. Daily Settlement Logic (UPI)</h3>
+                        <h3 style={{ marginBottom: '1rem', color: '#334155' }}>Daily Settlement (Manual UPI)</h3>
 
                         <div style={{ display: 'grid', gap: '8px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
-                                <span>1. MS General UPI:</span>
-                                <span style={{ fontWeight: 'bold' }}>{Number(generalShift.upi || 0).toFixed(2)}</span>
+                                <span>Pump Recorded UPI Sum:</span>
+                                <span style={{ fontWeight: 'bold' }}>₹ {totalUpiCollected.toFixed(2)}</span>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
-                                <span>2. MS Night UPI:</span>
-                                <span style={{ fontWeight: 'bold' }}>{Number(nightShift.upi || 0).toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
-                                <span>3. HSD UPI:</span>
-                                <span style={{ fontWeight: 'bold' }}>{Number(dieselShift.upi || 0).toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
-                                <span>4. Yesterday Pending:</span>
-                                <span>{Number(yesterdayPending).toFixed(2)}</span>
+                            
+                            <div style={{ marginTop: '6px' }}>
+                                <InputRow label="MANUAL UPI (BANK/APP)" val={manualUpiSettlement} setVal={setManualUpiSettlement} />
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '5px' }}>
-                                <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>(-) TODAY PENDING:</span>
-                                <input
-                                    type="number"
-                                    className="input"
-                                    style={{ width: '100px', textAlign: 'right', fontWeight: 'bold' }}
-                                    value={todayPendingInput}
-                                    onChange={e => setTodayPendingInput(e.target.value)}
-                                    placeholder="Enter Amount"
-                                />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>
+                                <span>Yesterday Pending:</span>
+                                <span>₹ {Number(yesterdayPending).toFixed(2)}</span>
                             </div>
 
-                            <div style={{ borderTop: '1px dashed #cbd5e1', margin: '4px 0' }}></div>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#334155' }}>
-                                <span>TOTAL (Calculated):</span>
-                                <span>{total_calc.toFixed(2)}</span>
-                            </div>
-
-                            <div style={{ marginTop: '10px' }}>
-                                <InputRow label="TODAY SETTLEMENT" val={todaySettlement} setVal={setTodaySettlement} />
+                            <div style={{ marginTop: '4px' }}>
+                                <InputRow label="(-) TODAY PENDING (SHORTAGE)" val={todayPendingInput} setVal={setTodayPendingInput} />
                             </div>
 
                             <div style={{ borderTop: '2px solid #334155', paddingTop: '10px', marginTop: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>DIFFERENCE:</span>
-                                <span style={{ fontWeight: 'bold', fontSize: '1.4rem', color: settlement_difference >= 0 ? '#10b981' : '#ef4444' }}>
+                                <span style={{ fontWeight: 'bold', fontSize: '1rem' }}>RECONCILIATION DIFF:</span>
+                                <span style={{ fontWeight: 'bold', fontSize: '1.3rem', color: settlement_difference >= 0 ? '#10b981' : '#ef4444' }}>
                                     ₹ {settlement_difference.toFixed(2)}
                                 </span>
                             </div>
                         </div>
 
                         <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', background: '#334155' }} onClick={handleCloseShift}>
-                            <Save size={18} style={{ marginRight: '8px' }} /> Save Daily Record
+                            <Save size={18} style={{ marginRight: '8px' }} /> Save & Export Reconciliation
                         </button>
                     </div>
 
-                    {/* Overall Summary */}
+                    {/* Overall Summary Card */}
                     <div className="card">
-                        <h3 style={{ fontSize: '1rem', marginBottom: '10px' }}>Overall Sales</h3>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                            <span style={{ color: '#64748b', fontSize: '0.9rem' }}>Total Sales Amt:</span>
-                            <span style={{ fontWeight: 'bold' }}>₹ {totalSaleAmount.toFixed(2)}</span>
+                        <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>Overall Sales Summary</h3>
+                        <div style={{ display: 'grid', gap: '8px', fontSize: '0.85rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#64748b' }}>Total Petrol Sold:</span>
+                                <span style={{ fontWeight: 'bold' }}>{totalPetrolLitres.toFixed(2)} L</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#64748b' }}>Total Diesel Sold:</span>
+                                <span style={{ fontWeight: 'bold' }}>{totalDieselLitres.toFixed(2)} L</span>
+                            </div>
+                            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '6px', display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#64748b' }}>Total Sales Amount:</span>
+                                <span style={{ fontWeight: 'bold', color: '#0284c7' }}>₹ {totalSaleAmount.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#64748b' }}>Total Cash:</span>
+                                <span>₹ {totalCashCollected.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#64748b' }}>Manual UPI Settlement:</span>
+                                <span style={{ fontWeight: 'bold', color: '#10b981' }}>₹ {manualUpiVal.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#64748b' }}>Total Card:</span>
+                                <span>₹ {totalCardCollected.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#64748b' }}>Total Credit:</span>
+                                <span>₹ {totalCreditCollected.toFixed(2)}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
-
             </div>
+
+            {/* Add Pump Modal */}
+            {showAddPumpModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div className="card" style={{ width: '400px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--surface)' }}>
+                        <h3 style={{ margin: 0, color: 'var(--text-main)' }}>Add New Pump</h3>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Pump Name / Number</label>
+                            <input 
+                                type="text" 
+                                className="input" 
+                                value={newPumpName} 
+                                onChange={e => setNewPumpName(e.target.value)} 
+                                placeholder="e.g. Pump 560" 
+                                autoFocus 
+                            />
+                        </div>
+                        <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                            <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleAddPump}>
+                                Save Pump
+                            </button>
+                            <button className="btn btn-secondary" style={{ flex: 1, border: '1px solid var(--border)' }} onClick={() => setShowAddPumpModal(false)}>
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
