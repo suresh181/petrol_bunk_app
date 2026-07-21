@@ -292,12 +292,28 @@ const ShiftSales = () => {
     };
 
     const handleReset = () => {
-        if (confirm("This will clear saved daily sales entries and reload.")) {
+        if (confirm("Are you sure you want to reset all sales entries to 0?")) {
             localStorage.removeItem('pump_sales_data');
             localStorage.removeItem('manual_upi_settlement');
             localStorage.removeItem('today_pending_input');
             localStorage.removeItem('shift_credits');
-            window.location.reload();
+            localStorage.removeItem('shift_general');
+            localStorage.removeItem('shift_night');
+            localStorage.removeItem('shift_diesel');
+            localStorage.removeItem('shift_readings');
+            
+            setManualUpiSettlement('');
+            setTodayPendingInput('');
+            setCreditBills([]);
+            
+            const resetData = {};
+            pumpsList.forEach(p => {
+                resetData[p.id] = DEFAULT_PUMP_ENTRY();
+            });
+            setPumpSales(resetData);
+            localStorage.setItem('pump_sales_data', JSON.stringify(resetData));
+            
+            alert("All entry fields have been reset to 0!");
         }
     };
 
