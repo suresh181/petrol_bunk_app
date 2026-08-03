@@ -2,6 +2,45 @@ import React, { useState, useEffect, Fragment } from 'react';
 import { supabase } from '../services/supabase';
 import { CheckCircle, Clock, Search, MessageCircle, Smartphone, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 
+const BUNK_NAME = "PPR & Sons (Indian Oil)";
+
+const formatPhoneForWa = (phone) => {
+    if (!phone) return '';
+    const cleaned = String(phone).replace(/\D/g, '');
+    if (cleaned.length === 10) {
+        return '91' + cleaned;
+    }
+    return cleaned;
+};
+
+const getReceiptMessage = (customerName, amountPaid, paymentDate, remainingBalance) => {
+    const formattedAmount = Number(amountPaid).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formattedDate = new Date(paymentDate).toLocaleDateString();
+    
+    if (remainingBalance <= 0) {
+        return `Hi ${customerName},
+
+Payment Received ✅
+Amount Paid: ₹${formattedAmount}
+Date: ${formattedDate}
+
+Your account is now fully settled. Thank you! 🎉
+— ${BUNK_NAME}`;
+    } else {
+        const formattedBalance = Number(remainingBalance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return `Hi ${customerName},
+
+Payment Received ✅
+Amount Paid: ₹${formattedAmount}
+Date: ${formattedDate}
+
+Remaining Balance: ₹${formattedBalance}
+
+Thank you for your payment!
+— ${BUNK_NAME}`;
+    }
+};
+
 const CreditLedger = () => {
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -16,6 +55,10 @@ const CreditLedger = () => {
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().substring(0, 10));
     const [paymentNotes, setPaymentNotes] = useState('');
     const [submittingPayment, setSubmittingPayment] = useState(false);
+
+    // Modal state for receipt popup after payment
+    const [showReceiptModal, setShowReceiptModal] = useState(false);
+    const [receiptDetails, setReceiptDetails] = useState(null);
 
     // Modal state for editing an entry
     const [showEditModal, setShowEditModal] = useState(false);
@@ -162,12 +205,15 @@ const CreditLedger = () => {
 
         setSubmittingPayment(true);
         try {
+            const amountPaidNum = Number(paymentAmount);
+            const remainingBalance = selectedCustomer.balance - amountPaidNum;
+
             const { error } = await supabase
                 .from('credit_transactions')
                 .insert([{
                     customer_id: selectedCustomer.id,
                     customer_name: selectedCustomer.name,
-                    amount: Number(paymentAmount),
+                    amount: amountPaidNum,
                     type: 'Payment Received',
                     is_settled: false,
                     created_at: new Date(paymentDate).toISOString(),
@@ -176,8 +222,17 @@ const CreditLedger = () => {
 
             if (error) throw error;
 
+            setReceiptDetails({
+                customerName: selectedCustomer.name,
+                customerPhone: selectedCustomer.phone,
+                amountPaid: amountPaidNum,
+                paymentDate: paymentDate,
+                remainingBalance: remainingBalance
+            });
+
             alert("Payment successfully logged!");
             setShowPaymentModal(false);
+            setShowReceiptModal(true);
             fetchTransactions();
         } catch (e) {
             console.error("Error adding payment:", e);
@@ -465,23 +520,74 @@ const CreditLedger = () => {
                                                                             <td style={{ padding: '8px 12px', fontWeight: 'bold' }}>₹ {entry.entry_balance.toFixed(2)}</td>
                                                                             <td style={{ padding: '8px 12px', color: '#64748b', fontSize: '0.8rem' }}>{entry.notes || '-'}</td>
                                                                             <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                                                                                {!String(entry.id).includes('-payment-migrated') ? (
-                                                                                    <button
-                                                                                        onClick={() => handleOpenEditModal(entry)}
-                                                                                        style={{
-                                                                                            background: 'none',
-                                                                                            border: 'none',
-                                                                                            color: '#3b82f6',
-                                                                                            cursor: 'pointer',
-                                                                                            padding: '2px'
-                                                                                        }}
-                                                                                        title="Edit Entry"
-                                                                                    >
-                                                                                        <Pencil size={14} />
-                                                                                    </button>
-                                                                                ) : (
-                                                                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }} title="Legacy auto-migrated settlement cannot be edited directly">Legacy</span>
-                                                                                )}
+                                                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                                                                    {!String(entry.id).includes('-payment-migrated') ? (
+                                                                                        <button
+                                                                                            onClick={() => handleOpenEditModal(entry)}
+                                                                                            style={{
+                                                                                                background: 'none',
+                                                                                                border: 'none',
+                                                                                                color: '#3b82f6',
+                                                                                                cursor: 'pointer',
+                                                                                                padding: '2px',
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center'
+                                                                                            }}
+                                                                                            title="Edit Entry"
+                                                                                        >
+                                                                                            <Pencil size={14} />
+                                                                                        </button>
+                                                                                    ) : (
+                                                                                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }} title="Legacy auto-migrated settlement cannot be edited directly">Legacy</span>
+                                                                                    )}
+
+                                                                                    {entry.type === 'Payment Received' && t.phone && (() => {
+                                                                                        const msgText = getReceiptMessage(t.name, entry.amount, entry.created_at, entry.entry_balance);
+                                                                                        const encodedMsg = encodeURIComponent(msgText);
+                                                                                        const waPhone = formatPhoneForWa(t.phone);
+                                                                                        const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+                                                                                        const smsHref = `sms:${t.phone}${isIOS ? '&' : '?'}body=${encodedMsg}`;
+
+                                                                                        return (
+                                                                                            <>
+                                                                                                <a
+                                                                                                    href={`https://wa.me/${waPhone}?text=${encodedMsg}`}
+                                                                                                    target="_blank"
+                                                                                                    rel="noreferrer"
+                                                                                                    style={{
+                                                                                                        background: 'none',
+                                                                                                        border: 'none',
+                                                                                                        color: '#25D366',
+                                                                                                        cursor: 'pointer',
+                                                                                                        padding: '2px',
+                                                                                                        display: 'flex',
+                                                                                                        alignItems: 'center',
+                                                                                                        textDecoration: 'none'
+                                                                                                    }}
+                                                                                                    title="Send Receipt via WhatsApp"
+                                                                                                >
+                                                                                                    <MessageCircle size={14} />
+                                                                                                </a>
+                                                                                                <a
+                                                                                                    href={smsHref}
+                                                                                                    style={{
+                                                                                                        background: 'none',
+                                                                                                        border: 'none',
+                                                                                                        color: '#0ea5e9',
+                                                                                                        cursor: 'pointer',
+                                                                                                        padding: '2px',
+                                                                                                        display: 'flex',
+                                                                                                        alignItems: 'center',
+                                                                                                        textDecoration: 'none'
+                                                                                                    }}
+                                                                                                    title="Send Receipt via SMS"
+                                                                                                >
+                                                                                                    <Smartphone size={14} />
+                                                                                                </a>
+                                                                                            </>
+                                                                                        );
+                                                                                    })()}
+                                                                                </div>
                                                                             </td>
                                                                         </tr>
                                                                     ))
@@ -572,6 +678,122 @@ const CreditLedger = () => {
                                 Cancel
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Receipt Modal */}
+            {showReceiptModal && receiptDetails && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div className="card" style={{ width: '420px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--surface)' }}>
+                        <h3 style={{ margin: 0, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <CheckCircle size={24} color="#10b981" />
+                            <span>Payment Confirmed</span>
+                        </h3>
+                        
+                        <div style={{ background: 'var(--background)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                            <div style={{ marginBottom: '6px' }}><strong>Customer:</strong> {receiptDetails.customerName}</div>
+                            <div style={{ marginBottom: '6px' }}><strong>Amount Paid:</strong> ₹{receiptDetails.amountPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                            <div style={{ marginBottom: '6px' }}><strong>Date:</strong> {new Date(receiptDetails.paymentDate).toLocaleDateString()}</div>
+                            <div>
+                                <strong>Remaining Balance:</strong>{" "}
+                                <span style={{ fontWeight: 'bold', color: receiptDetails.remainingBalance <= 0 ? '#10b981' : '#ea580c' }}>
+                                    ₹{receiptDetails.remainingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            Generate manual receipt notifications for the customer:
+                        </div>
+
+                        {(() => {
+                            const msgText = getReceiptMessage(
+                                receiptDetails.customerName,
+                                receiptDetails.amountPaid,
+                                receiptDetails.paymentDate,
+                                receiptDetails.remainingBalance
+                            );
+                            const encodedMsg = encodeURIComponent(msgText);
+                            const waPhone = formatPhoneForWa(receiptDetails.customerPhone);
+                            const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+                            const smsHref = receiptDetails.customerPhone ? `sms:${receiptDetails.customerPhone}${isIOS ? '&' : '?'}body=${encodedMsg}` : '#';
+
+                            return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                                    {receiptDetails.customerPhone ? (
+                                        <>
+                                            <a
+                                                href={`https://wa.me/${waPhone}?text=${encodedMsg}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="btn"
+                                                style={{
+                                                    background: '#25D366',
+                                                    color: '#ffffff',
+                                                    textDecoration: 'none',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '8px',
+                                                    fontWeight: 'bold',
+                                                    height: '42px',
+                                                    borderRadius: '8px'
+                                                }}
+                                            >
+                                                <MessageCircle size={18} />
+                                                Send Receipt (WhatsApp)
+                                            </a>
+                                            <a
+                                                href={smsHref}
+                                                className="btn"
+                                                style={{
+                                                    background: '#0ea5e9',
+                                                    color: '#ffffff',
+                                                    textDecoration: 'none',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '8px',
+                                                    fontWeight: 'bold',
+                                                    height: '42px',
+                                                    borderRadius: '8px'
+                                                }}
+                                            >
+                                                <Smartphone size={18} />
+                                                Send Receipt (SMS)
+                                            </a>
+                                        </>
+                                    ) : (
+                                        <div style={{ color: '#ef4444', fontSize: '0.8rem', textAlign: 'center', margin: '4px 0' }}>
+                                            No phone number stored for this customer.
+                                        </div>
+                                    )}
+                                    
+                                    <button
+                                        className="btn btn-secondary"
+                                        style={{ border: '1px solid var(--border)', marginTop: '8px', height: '38px', borderRadius: '8px' }}
+                                        onClick={() => {
+                                            setShowReceiptModal(false);
+                                            setReceiptDetails(null);
+                                        }}
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
             )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Save, AlertTriangle, Plus, Trash2, TrendingUp, User, ShieldCheck, CheckCircle } from 'lucide-react';
 import { utils, writeFile } from 'xlsx';
 import { useData } from '../context/DataContext';
@@ -108,27 +108,91 @@ const ShiftSales = () => {
         localStorage.setItem('pump_sales_data', JSON.stringify(pumpSales));
     }, [pumpSales]);
 
-    // Section 4: Daily Settlement Logic State (Manual UPI)
-    const [manualUpiSettlement, setManualUpiSettlement] = useState(() => loadState('manual_upi_settlement', ''));
-    const [todayPendingInput, setTodayPendingInput] = useState(() => loadState('today_pending_input', ''));
-    const [yesterdayPending, setYesterdayPending] = useState(0);
+    // Section 4: Daily Settlement & Overall Sales Summary Logic
+    const [pumpUpiInputs, setPumpUpiInputs] = useState(() => loadState('pump_upi_inputs_summary', {}));
+    const [actualAmountInput, setActualAmountInput] = useState(() => loadState('actual_amount_summary', ''));
+    const [ledgerTransactions, setLedgerTransactions] = useState([]);
 
     useEffect(() => {
-        localStorage.setItem('manual_upi_settlement', String(manualUpiSettlement));
-    }, [manualUpiSettlement]);
+        localStorage.setItem('pump_upi_inputs_summary', JSON.stringify(pumpUpiInputs));
+    }, [pumpUpiInputs]);
 
     useEffect(() => {
-        localStorage.setItem('today_pending_input', String(todayPendingInput));
-    }, [todayPendingInput]);
+        localStorage.setItem('actual_amount_summary', String(actualAmountInput));
+    }, [actualAmountInput]);
 
-    // Fetch Yesterday's Pending from DB
+    // Fetch Credit Ledger transactions
     useEffect(() => {
-        const fetchPending = async () => {
-            const { data } = await supabase.from('sales_records').select('shortage_excess').order('created_at', { ascending: false }).limit(1);
-            if (data && data.length > 0) setYesterdayPending(data[0].shortage_excess || 0);
+        const fetchLedger = async () => {
+            if (!supabase) return;
+            try {
+                const { data, error } = await supabase
+                    .from('credit_transactions')
+                    .select('*')
+                    .order('created_at', { ascending: true });
+                if (!error && data) {
+                    setLedgerTransactions(data);
+                }
+            } catch (e) {
+                console.error("Error fetching credit ledger:", e);
+            }
         };
-        fetchPending();
+        fetchLedger();
     }, []);
+
+    // Calculate outstanding balances dynamically
+    const getOutstandingBalanceAsOf = (dateStr) => {
+        const cutoff = new Date(`${dateStr}T23:59:59.999Z`);
+        let balance = 0;
+        
+        ledgerTransactions.forEach(t => {
+            const txDate = new Date(t.created_at);
+            if (txDate <= cutoff) {
+                const amount = Number(t.amount) || 0;
+                const type = t.type || 'Petrol Given';
+                
+                if (type === 'Payment Received') {
+                    balance -= amount;
+                } else {
+                    balance += amount;
+                    if (t.is_settled && !t.type) {
+                        balance -= amount;
+                    }
+                }
+            }
+        });
+        return balance;
+    };
+
+    const yesterdayPending = useMemo(() => {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        return getOutstandingBalanceAsOf(yesterdayStr);
+    }, [ledgerTransactions]);
+
+    const todayPending = useMemo(() => {
+        return ledgerTransactions.reduce((acc, t) => {
+            const amount = Number(t.amount) || 0;
+            const type = t.type || 'Petrol Given';
+            if (type === 'Payment Received') {
+                return acc - amount;
+            } else {
+                let val = acc + amount;
+                if (t.is_settled && !t.type) {
+                    val -= amount;
+                }
+                return val;
+            }
+        }, 0);
+    }, [ledgerTransactions]);
+
+    const handleUpdatePumpUpi = (pumpId, val) => {
+        setPumpUpiInputs(prev => ({
+            ...prev,
+            [pumpId]: val
+        }));
+    };
 
     // Helper to update a field inside a specific pump & slot
     const updateEntry = (pumpId, slot, field, value) => {
@@ -201,12 +265,11 @@ const ShiftSales = () => {
     const totalCollections = totalCashCollected + totalUpiCollected + totalCardCollected + totalCreditCollected;
     const overallShortageExcess = totalSaleAmount - totalCollections;
 
-    // Reconciliation formula with Manual UPI
-    const manualUpiVal = Number(manualUpiSettlement || 0);
-    const todayPendingVal = Number(todayPendingInput || 0);
-
-    // Difference = (Manual Bank UPI + Yesterday Pending) - (System Recorded Pump UPI + Today Pending)
-    const settlement_difference = (manualUpiVal + Number(yesterdayPending || 0)) - (totalUpiCollected + todayPendingVal);
+    // Reconciliation calculations
+    const totalPumpUpi = pumpsList.reduce((sum, p) => sum + Number(pumpUpiInputs[p.id] || 0), 0);
+    const totalSettlement = totalCashCollected + totalCardCollected + totalPumpUpi;
+    const actualAmount = Number(actualAmountInput || 0);
+    const settlement_difference = actualAmount - totalSettlement;
 
     // Credit Helper Bills State
     const [creditBills, setCreditBills] = useState(() => loadState('shift_credits', []));
@@ -327,10 +390,10 @@ const ShiftSales = () => {
             petrol_sold: totalPetrolLitres,
             diesel_sold: totalDieselLitres,
             total_amount: totalSaleAmount,
-            shortage_excess: todayPendingVal,
-            today_settlement_amount: manualUpiVal,
+            shortage_excess: settlement_difference, // save difference / shortage
+            today_settlement_amount: totalSettlement,
             cash_collected: totalCashCollected,
-            upi_collected: manualUpiVal,
+            upi_collected: totalPumpUpi,
             card_collected: totalCardCollected,
         };
 
@@ -365,12 +428,21 @@ const ShiftSales = () => {
 
         // Add Settlement Section
         excelRows.push(
-            { "Metric": "DAILY SETTLEMENT (MANUAL UPI)", "Value": "---" },
-            { "Metric": "System Recorded Pump UPI Sum", "Value": totalUpiCollected.toFixed(2) },
-            { "Metric": "Manual Bank UPI Settlement", "Value": manualUpiVal.toFixed(2) },
-            { "Metric": "Yesterday Pending", "Value": Number(yesterdayPending).toFixed(2) },
-            { "Metric": "Today Pending (Input)", "Value": todayPendingVal.toFixed(2) },
-            { "Metric": "Reconciliation Difference", "Value": settlement_difference.toFixed(2) },
+            { "Metric": "OVERALL SALES SUMMARY", "Value": "---" },
+            { "Metric": "Yesterday Pending", "Value": yesterdayPending.toFixed(2) },
+            { "Metric": "Today Pending (Credit Ledger)", "Value": todayPending.toFixed(2) },
+            { "Metric": "Cash (Pump Entries)", "Value": totalCashCollected.toFixed(2) },
+            { "Metric": "Card (Pump Entries)", "Value": totalCardCollected.toFixed(2) }
+        );
+
+        pumpsList.forEach(p => {
+            excelRows.push({ "Metric": `${p.name} UPI`, "Value": Number(pumpUpiInputs[p.id] || 0).toFixed(2) });
+        });
+
+        excelRows.push(
+            { "Metric": "Total Settlement", "Value": totalSettlement.toFixed(2) },
+            { "Metric": "Actual Amount Counted", "Value": actualAmount.toFixed(2) },
+            { "Metric": "Difference", "Value": settlement_difference.toFixed(2) },
             { "Metric": "", "Value": "" },
             { "Metric": "OVERALL TOTALS", "Value": "---" },
             { "Metric": "Total Petrol Sold (L)", "Value": totalPetrolLitres.toFixed(2) },
@@ -397,8 +469,8 @@ const ShiftSales = () => {
             alert("Saved Record & Downloaded Excel Report!");
 
             localStorage.removeItem('pump_sales_data');
-            localStorage.removeItem('manual_upi_settlement');
-            localStorage.removeItem('today_pending_input');
+            localStorage.removeItem('pump_upi_inputs_summary');
+            localStorage.removeItem('actual_amount_summary');
             localStorage.removeItem('shift_credits');
 
             window.location.reload();
@@ -539,78 +611,156 @@ const ShiftSales = () => {
                         </div>
                     </div>
                 </div>
-
-                {/* RIGHT COLUMN: Daily Settlement (Manual UPI) & Overall Summary */}
+                {/* RIGHT COLUMN: Overall Sales Summary */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    {/* Section 4: Daily Settlement Logic (Manual UPI) */}
-                    <div className="card" style={{ background: '#f8fafc', border: '1px solid #cbd5e1' }}>
-                        <h3 style={{ marginBottom: '1rem', color: '#334155' }}>Daily Settlement (Manual UPI)</h3>
-
-                        <div style={{ display: 'grid', gap: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b' }}>
-                                <span>Pump Recorded UPI Sum:</span>
-                                <span style={{ fontWeight: 'bold' }}>₹ {totalUpiCollected.toFixed(2)}</span>
-                            </div>
-                            
-                            <div style={{ marginTop: '6px' }}>
-                                <InputRow label="MANUAL UPI (BANK/APP)" val={manualUpiSettlement} setVal={setManualUpiSettlement} />
-                            </div>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>
-                                <span>Yesterday Pending:</span>
-                                <span>₹ {Number(yesterdayPending).toFixed(2)}</span>
-                            </div>
-
-                            <div style={{ marginTop: '4px' }}>
-                                <InputRow label="(-) TODAY PENDING (SHORTAGE)" val={todayPendingInput} setVal={setTodayPendingInput} />
-                            </div>
-
-                            <div style={{ borderTop: '2px solid #334155', paddingTop: '10px', marginTop: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 'bold', fontSize: '1rem' }}>RECONCILIATION DIFF:</span>
-                                <span style={{ fontWeight: 'bold', fontSize: '1.3rem', color: settlement_difference >= 0 ? '#10b981' : '#ef4444' }}>
-                                    ₹ {settlement_difference.toFixed(2)}
-                                </span>
-                            </div>
-                        </div>
-
-                        <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', background: '#334155' }} onClick={handleCloseShift}>
-                            <Save size={18} style={{ marginRight: '8px' }} /> Save & Export Reconciliation
-                        </button>
-                    </div>
-
-                    {/* Overall Summary Card */}
                     <div className="card">
-                        <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>Overall Sales Summary</h3>
-                        <div style={{ display: 'grid', gap: '8px', fontSize: '0.85rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Total Petrol Sold:</span>
-                                <span style={{ fontWeight: 'bold' }}>{totalPetrolLitres.toFixed(2)} L</span>
+                        <h3 style={{ marginBottom: '1.25rem', color: '#334155', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.75rem' }}>
+                            Overall Sales Summary
+                        </h3>
+
+                        {/* Pump Recorded UPI Sum Sub-section */}
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <h4 style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: '600', marginBottom: '10px' }}>
+                                Pump Recorded UPI Sum
+                            </h4>
+                            
+                            {/* Manual UPI Inputs per Pump */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {pumpsList.map(pump => (
+                                    <div key={pump.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                        <span style={{ fontSize: '0.85rem', color: '#64748b' }}>{pump.name} UPI:</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', position: 'relative', width: '130px' }}>
+                                            <span style={{ position: 'absolute', left: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>₹</span>
+                                            <input
+                                                type="number"
+                                                className="input"
+                                                style={{
+                                                    paddingLeft: '20px',
+                                                    textAlign: 'right',
+                                                    height: '34px',
+                                                    fontSize: '0.85rem',
+                                                    borderRadius: '6px'
+                                                }}
+                                                placeholder="0.00"
+                                                value={pumpUpiInputs[pump.id] || ''}
+                                                onChange={e => handleUpdatePumpUpi(pump.id, e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Total Diesel Sold:</span>
-                                <span style={{ fontWeight: 'bold' }}>{totalDieselLitres.toFixed(2)} L</span>
-                            </div>
-                            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '6px', display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Total Sales Amount:</span>
-                                <span style={{ fontWeight: 'bold', color: '#0284c7' }}>₹ {totalSaleAmount.toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Total Cash:</span>
-                                <span>₹ {totalCashCollected.toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Manual UPI Settlement:</span>
-                                <span style={{ fontWeight: 'bold', color: '#10b981' }}>₹ {manualUpiVal.toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Total Card:</span>
-                                <span>₹ {totalCardCollected.toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Total Credit:</span>
-                                <span>₹ {totalCreditCollected.toFixed(2)}</span>
+
+                            {/* Yesterday & Today Outstanding Credit Balances */}
+                            <div style={{ borderTop: '1px dashed #e2e8f0', marginTop: '12px', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                                    <span style={{ color: '#64748b' }}>Yesterday Pending:</span>
+                                    <span style={{ fontWeight: '700', color: '#ea580c' }}>
+                                        ₹ {yesterdayPending.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                                    <span style={{ color: '#64748b' }}>Today Pending:</span>
+                                    <span style={{ fontWeight: '700', color: '#ea580c' }}>
+                                        ₹ {todayPending.toFixed(2)}
+                                    </span>
+                                </div>
                             </div>
                         </div>
+
+                        {/* Total Settlement Calculation Section */}
+                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px', marginBottom: '1.25rem' }}>
+                            <h4 style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: '600', marginBottom: '10px' }}>
+                                Total Settlement Components
+                            </h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem', color: '#64748b' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>Cash (Pump Entries):</span>
+                                    <span style={{ fontWeight: '500' }}>₹ {totalCashCollected.toFixed(2)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>Card (Pump Entries):</span>
+                                    <span style={{ fontWeight: '500' }}>₹ {totalCardCollected.toFixed(2)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}>
+                                    <span>Pump UPI Total:</span>
+                                    <span style={{ fontWeight: '500' }}>₹ {totalPumpUpi.toFixed(2)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: '700', color: '#0f172a', marginTop: '4px' }}>
+                                    <span>Total Settlement:</span>
+                                    <span style={{ color: '#002F87' }}>₹ {totalSettlement.toFixed(2)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Actual Counted Input Field */}
+                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px', marginBottom: '1.25rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#334155' }}>Actual Amount Counted:</span>
+                                <div style={{ display: 'flex', alignItems: 'center', position: 'relative', width: '130px' }}>
+                                    <span style={{ position: 'absolute', left: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>₹</span>
+                                    <input
+                                        type="number"
+                                        className="input"
+                                        style={{
+                                            paddingLeft: '20px',
+                                            textAlign: 'right',
+                                            height: '34px',
+                                            fontSize: '0.85rem',
+                                            fontWeight: 'bold',
+                                            borderRadius: '6px'
+                                        }}
+                                        placeholder="Enter Counted"
+                                        value={actualAmountInput}
+                                        onChange={e => setActualAmountInput(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Reconciliation Difference Field */}
+                        <div style={{
+                            borderTop: '2px solid #334155',
+                            paddingTop: '10px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '1.5rem'
+                        }}>
+                            <span style={{ fontWeight: 'bold', fontSize: '0.95rem', color: '#0f172a' }}>Difference:</span>
+                            <span style={{
+                                fontWeight: 'bold',
+                                fontSize: '1.2rem',
+                                color: settlement_difference >= 0 ? '#10b981' : '#ef4444'
+                            }}>
+                                ₹ {settlement_difference.toFixed(2)}
+                            </span>
+                        </div>
+
+                        {/* Sales Volume Summary */}
+                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.8rem', color: '#64748b' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Total Petrol Sold:</span>
+                                <span style={{ fontWeight: '600', color: '#0f172a' }}>{totalPetrolLitres.toFixed(2)} L</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Total Diesel Sold:</span>
+                                <span style={{ fontWeight: '600', color: '#0f172a' }}>{totalDieselLitres.toFixed(2)} L</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#0f172a', fontWeight: 'bold', borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
+                                <span>Expected Sales Amount:</span>
+                                <span style={{ color: '#0284c7' }}>₹ {totalSaleAmount.toFixed(2)}</span>
+                            </div>
+                        </div>
+
+                        {/* Submit Button */}
+                        <button
+                            className="btn btn-primary"
+                            style={{ width: '100%', background: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                            onClick={handleCloseShift}
+                        >
+                            <Save size={18} />
+                            <span>Save Daily Record</span>
+                        </button>
                     </div>
                 </div>
             </div>
