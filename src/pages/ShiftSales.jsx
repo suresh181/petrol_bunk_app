@@ -25,11 +25,97 @@ const DEFAULT_PUMPS = [
     { id: 'P570', name: 'Pump 570' }
 ];
 
+const migratePumpSalesData = (saved) => {
+    if (!saved) return null;
+    const migrated = {};
+    Object.keys(saved).forEach(pumpId => {
+        const entry = saved[pumpId];
+        if (entry && (entry.petrolPayments || entry.dieselPayments)) {
+            migrated[pumpId] = {
+                petrol1: {
+                    opening: Number(entry.petrol1?.opening || 0),
+                    closing: Number(entry.petrol1?.closing || 0),
+                    test: Number(entry.petrol1?.test || 0)
+                },
+                petrol2: {
+                    opening: Number(entry.petrol2?.opening || 0),
+                    closing: Number(entry.petrol2?.closing || 0),
+                    test: Number(entry.petrol2?.test || 0)
+                },
+                petrolPayments: {
+                    cash: Number(entry.petrolPayments?.cash || 0),
+                    upi: Number(entry.petrolPayments?.upi || 0),
+                    card: Number(entry.petrolPayments?.card || 0)
+                },
+                diesel1: {
+                    opening: Number(entry.diesel1?.opening || 0),
+                    closing: Number(entry.diesel1?.closing || 0),
+                    test: Number(entry.diesel1?.test || 0)
+                },
+                diesel2: {
+                    opening: Number(entry.diesel2?.opening || 0),
+                    closing: Number(entry.diesel2?.closing || 0),
+                    test: Number(entry.diesel2?.test || 0)
+                },
+                dieselPayments: {
+                    cash: Number(entry.dieselPayments?.cash || 0),
+                    upi: Number(entry.dieselPayments?.upi || 0),
+                    card: Number(entry.dieselPayments?.card || 0)
+                }
+            };
+        } else if (entry) {
+            const petrolCash = Number(entry.petrol1?.cash || 0) + Number(entry.petrol2?.cash || 0);
+            const petrolUpi = Number(entry.petrol1?.upi || 0) + Number(entry.petrol2?.upi || 0);
+            const petrolCard = Number(entry.petrol1?.card || 0) + Number(entry.petrol2?.card || 0);
+
+            const dieselCash = Number(entry.diesel1?.cash || 0) + Number(entry.diesel2?.cash || 0);
+            const dieselUpi = Number(entry.diesel1?.upi || 0) + Number(entry.diesel2?.upi || 0);
+            const dieselCard = Number(entry.diesel1?.card || 0) + Number(entry.diesel2?.card || 0);
+
+            migrated[pumpId] = {
+                petrol1: {
+                    opening: Number(entry.petrol1?.opening || 0),
+                    closing: Number(entry.petrol1?.closing || 0),
+                    test: Number(entry.petrol1?.test || 0)
+                },
+                petrol2: {
+                    opening: Number(entry.petrol2?.opening || 0),
+                    closing: Number(entry.petrol2?.closing || 0),
+                    test: Number(entry.petrol2?.test || 0)
+                },
+                petrolPayments: {
+                    cash: petrolCash,
+                    upi: petrolUpi,
+                    card: petrolCard
+                },
+                diesel1: {
+                    opening: Number(entry.diesel1?.opening || 0),
+                    closing: Number(entry.diesel1?.closing || 0),
+                    test: Number(entry.diesel1?.test || 0)
+                },
+                diesel2: {
+                    opening: Number(entry.diesel2?.opening || 0),
+                    closing: Number(entry.diesel2?.closing || 0),
+                    test: Number(entry.diesel2?.test || 0)
+                },
+                dieselPayments: {
+                    cash: dieselCash,
+                    upi: dieselUpi,
+                    card: dieselCard
+                }
+            };
+        }
+    });
+    return migrated;
+};
+
 const DEFAULT_PUMP_ENTRY = () => ({
-    petrol1: { opening: 0, closing: 0, test: 0, cash: 0, upi: 0, card: 0, credit: 0 },
-    petrol2: { opening: 0, closing: 0, test: 0, cash: 0, upi: 0, card: 0, credit: 0 },
-    diesel1: { opening: 0, closing: 0, test: 0, cash: 0, upi: 0, card: 0, credit: 0 },
-    diesel2: { opening: 0, closing: 0, test: 0, cash: 0, upi: 0, card: 0, credit: 0 }
+    petrol1: { opening: 0, closing: 0, test: 0 },
+    petrol2: { opening: 0, closing: 0, test: 0 },
+    petrolPayments: { cash: 0, upi: 0, card: 0 },
+    diesel1: { opening: 0, closing: 0, test: 0 },
+    diesel2: { opening: 0, closing: 0, test: 0 },
+    dieselPayments: { cash: 0, upi: 0, card: 0 }
 });
 
 const ShiftSales = () => {
@@ -79,7 +165,11 @@ const ShiftSales = () => {
     // Pump Sales State (mapped by pump ID)
     const [pumpSales, setPumpSales] = useState(() => {
         const saved = loadState('pump_sales_data', null);
-        if (saved) return saved;
+        if (saved) {
+            const migrated = migratePumpSalesData(saved);
+            localStorage.setItem('pump_sales_data', JSON.stringify(migrated));
+            return migrated;
+        }
         const initial = {};
         DEFAULT_PUMPS.forEach(p => {
             initial[p.id] = DEFAULT_PUMP_ENTRY();
@@ -208,8 +298,8 @@ const ShiftSales = () => {
         }));
     };
 
-    // Calculate figures for an entry slot
-    const getEntryMetrics = (entry, fuelType) => {
+    // Calculate figures for a nozzle entry (opening, closing, test)
+    const getNozzleMetrics = (entry, fuelType) => {
         const opening = Number(entry?.opening || 0);
         const closing = Number(entry?.closing || 0);
         const test = Number(entry?.test || 0);
@@ -217,14 +307,18 @@ const ShiftSales = () => {
         const rate = fuelType === 'Petrol' ? Number(prices?.petrol || 0) : Number(prices?.diesel || 0);
         const saleAmount = litres * rate;
 
-        const cash = Number(entry?.cash || 0);
-        const upi = Number(entry?.upi || 0);
-        const card = Number(entry?.card || 0);
-        const credit = Number(entry?.credit || 0);
-        const totalCollections = cash + upi + card + credit;
-        const shortageExcess = saleAmount - totalCollections;
+        return { litres, saleAmount };
+    };
 
-        return { litres, saleAmount, cash, upi, card, credit, totalCollections, shortageExcess };
+    // Calculate figures for combined payments (cash, upi, card)
+    const getPaymentMetrics = (payments, expectedSaleAmount) => {
+        const cash = Number(payments?.cash || 0);
+        const upi = Number(payments?.upi || 0);
+        const card = Number(payments?.card || 0);
+        const totalCollections = cash + upi + card;
+        const shortageExcess = expectedSaleAmount - totalCollections;
+
+        return { cash, upi, card, totalCollections, shortageExcess };
     };
 
     // Aggregates across ALL pumps and slots
@@ -240,29 +334,33 @@ const ShiftSales = () => {
     pumpsList.forEach(p => {
         const pData = pumpSales[p.id] || DEFAULT_PUMP_ENTRY();
 
-        ['petrol1', 'petrol2'].forEach(slot => {
-            const m = getEntryMetrics(pData[slot], 'Petrol');
-            totalPetrolLitres += m.litres;
-            totalPetrolSaleAmount += m.saleAmount;
-            totalCashCollected += m.cash;
-            totalUpiCollected += m.upi;
-            totalCardCollected += m.card;
-            totalCreditCollected += m.credit;
-        });
+        // Petrol nozzle readings
+        const pet1 = getNozzleMetrics(pData.petrol1, 'Petrol');
+        const pet2 = getNozzleMetrics(pData.petrol2, 'Petrol');
+        totalPetrolLitres += pet1.litres + pet2.litres;
+        totalPetrolSaleAmount += pet1.saleAmount + pet2.saleAmount;
 
-        ['diesel1', 'diesel2'].forEach(slot => {
-            const m = getEntryMetrics(pData[slot], 'Diesel');
-            totalDieselLitres += m.litres;
-            totalDieselSaleAmount += m.saleAmount;
-            totalCashCollected += m.cash;
-            totalUpiCollected += m.upi;
-            totalCardCollected += m.card;
-            totalCreditCollected += m.credit;
-        });
+        // Petrol payments
+        const petPay = pData.petrolPayments || { cash: 0, upi: 0, card: 0 };
+        totalCashCollected += Number(petPay.cash || 0);
+        totalUpiCollected += Number(petPay.upi || 0);
+        totalCardCollected += Number(petPay.card || 0);
+
+        // Diesel nozzle readings
+        const die1 = getNozzleMetrics(pData.diesel1, 'Diesel');
+        const die2 = getNozzleMetrics(pData.diesel2, 'Diesel');
+        totalDieselLitres += die1.litres + die2.litres;
+        totalDieselSaleAmount += die1.saleAmount + die2.saleAmount;
+
+        // Diesel payments
+        const diePay = pData.dieselPayments || { cash: 0, upi: 0, card: 0 };
+        totalCashCollected += Number(diePay.cash || 0);
+        totalUpiCollected += Number(diePay.upi || 0);
+        totalCardCollected += Number(diePay.card || 0);
     });
 
     const totalSaleAmount = totalPetrolSaleAmount + totalDieselSaleAmount;
-    const totalCollections = totalCashCollected + totalUpiCollected + totalCardCollected + totalCreditCollected;
+    const totalCollections = totalCashCollected + totalUpiCollected + totalCardCollected;
     const overallShortageExcess = totalSaleAmount - totalCollections;
 
     // Reconciliation calculations
@@ -409,20 +507,40 @@ const ShiftSales = () => {
             const pData = pumpSales[p.id] || DEFAULT_PUMP_ENTRY();
             excelRows.push({ "Metric": `=== ${p.name.toUpperCase()} ===`, "Value": "---" });
 
-            const slots = [
-                { key: 'petrol1', label: 'Petrol 1', type: 'Petrol' },
-                { key: 'petrol2', label: 'Petrol 2', type: 'Petrol' },
-                { key: 'diesel1', label: 'Diesel 1', type: 'Diesel' },
-                { key: 'diesel2', label: 'Diesel 2', type: 'Diesel' }
-            ];
+            // Petrol
+            const pet1 = getNozzleMetrics(pData.petrol1, 'Petrol');
+            const pet2 = getNozzleMetrics(pData.petrol2, 'Petrol');
+            const petTotalExpected = pet1.saleAmount + pet2.saleAmount;
+            const petTotalLitres = pet1.litres + pet2.litres;
+            const petPayments = pData.petrolPayments || { cash: 0, upi: 0, card: 0 };
+            const petMetrics = getPaymentMetrics(petPayments, petTotalExpected);
 
-            slots.forEach(s => {
-                const m = getEntryMetrics(pData[s.key], s.type);
-                excelRows.push({ "Metric": `${s.label} Litres Sold`, "Value": m.litres.toFixed(2) });
-                excelRows.push({ "Metric": `${s.label} Expected Amount (₹)`, "Value": m.saleAmount.toFixed(2) });
-                excelRows.push({ "Metric": `${s.label} Collections`, "Value": `Cash: ${m.cash}, UPI: ${m.upi}, Card: ${m.card}, Credit: ${m.credit}` });
-                excelRows.push({ "Metric": `${s.label} Shortage/Excess`, "Value": m.shortageExcess.toFixed(2) });
-            });
+            excelRows.push({ "Metric": "Petrol 1 Litres Sold", "Value": pet1.litres.toFixed(2) });
+            excelRows.push({ "Metric": "Petrol 1 Expected Amount (₹)", "Value": pet1.saleAmount.toFixed(2) });
+            excelRows.push({ "Metric": "Petrol 2 Litres Sold", "Value": pet2.litres.toFixed(2) });
+            excelRows.push({ "Metric": "Petrol 2 Expected Amount (₹)", "Value": pet2.saleAmount.toFixed(2) });
+            excelRows.push({ "Metric": "Petrol Combined Litres Sold", "Value": petTotalLitres.toFixed(2) });
+            excelRows.push({ "Metric": "Petrol Combined Expected Amount (₹)", "Value": petTotalExpected.toFixed(2) });
+            excelRows.push({ "Metric": "Petrol Combined Collections", "Value": `Cash: ${petPayments.cash}, UPI: ${petPayments.upi}, Card: ${petPayments.card}` });
+            excelRows.push({ "Metric": "Petrol Combined Shortage/Excess", "Value": petMetrics.shortageExcess.toFixed(2) });
+
+            // Diesel
+            const die1 = getNozzleMetrics(pData.diesel1, 'Diesel');
+            const die2 = getNozzleMetrics(pData.diesel2, 'Diesel');
+            const dieTotalExpected = die1.saleAmount + die2.saleAmount;
+            const dieTotalLitres = die1.litres + die2.litres;
+            const diePayments = pData.dieselPayments || { cash: 0, upi: 0, card: 0 };
+            const dieMetrics = getPaymentMetrics(diePayments, dieTotalExpected);
+
+            excelRows.push({ "Metric": "Diesel 1 Litres Sold", "Value": die1.litres.toFixed(2) });
+            excelRows.push({ "Metric": "Diesel 1 Expected Amount (₹)", "Value": die1.saleAmount.toFixed(2) });
+            excelRows.push({ "Metric": "Diesel 2 Litres Sold", "Value": die2.litres.toFixed(2) });
+            excelRows.push({ "Metric": "Diesel 2 Expected Amount (₹)", "Value": die2.saleAmount.toFixed(2) });
+            excelRows.push({ "Metric": "Diesel Combined Litres Sold", "Value": dieTotalLitres.toFixed(2) });
+            excelRows.push({ "Metric": "Diesel Combined Expected Amount (₹)", "Value": dieTotalExpected.toFixed(2) });
+            excelRows.push({ "Metric": "Diesel Combined Collections", "Value": `Cash: ${diePayments.cash}, UPI: ${diePayments.upi}, Card: ${diePayments.card}` });
+            excelRows.push({ "Metric": "Diesel Combined Shortage/Excess", "Value": dieMetrics.shortageExcess.toFixed(2) });
+
             excelRows.push({ "Metric": "", "Value": "" });
         });
 
@@ -509,46 +627,113 @@ const ShiftSales = () => {
                     {pumpsList.map(pump => {
                         const pData = pumpSales[pump.id] || DEFAULT_PUMP_ENTRY();
 
-                        const renderSlotCard = (slotKey, title, fuelType) => {
-                            const entry = pData[slotKey] || {};
-                            const metrics = getEntryMetrics(entry, fuelType);
-                            const cardBorder = fuelType === 'Petrol' ? '#3b82f6' : '#f59e0b';
-                            const badgeBg = fuelType === 'Petrol' ? '#eff6ff' : '#fffbeb';
-                            const badgeColor = fuelType === 'Petrol' ? '#1d4ed8' : '#b45309';
+                        const renderFuelSection = (fuelType) => {
+                            const isPetrol = fuelType === 'Petrol';
+                            const key1 = isPetrol ? 'petrol1' : 'diesel1';
+                            const key2 = isPetrol ? 'petrol2' : 'diesel2';
+                            const payKey = isPetrol ? 'petrolPayments' : 'dieselPayments';
+                            
+                            const entry1 = pData[key1] || {};
+                            const entry2 = pData[key2] || {};
+                            const payments = pData[payKey] || {};
+                            
+                            const m1 = getNozzleMetrics(entry1, fuelType);
+                            const m2 = getNozzleMetrics(entry2, fuelType);
+                            
+                            const totalExpected = m1.saleAmount + m2.saleAmount;
+                            const totalLitres = m1.litres + m2.litres;
+                            
+                            const payMetrics = getPaymentMetrics(payments, totalExpected);
+                            
+                            const badgeBg = isPetrol ? '#eff6ff' : '#fffbeb';
+                            const badgeColor = isPetrol ? '#1d4ed8' : '#b45309';
+                            const sectionTitle = isPetrol ? 'Petrol Nozzles & Combined Payments' : 'Diesel Nozzles & Combined Payments';
+                            const sectionBorderColor = isPetrol ? '#3b82f6' : '#f59e0b';
+
+                            const showMismatchWarning = Math.abs(payMetrics.shortageExcess) > 0.01;
 
                             return (
-                                <div key={slotKey} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '1rem', marginBottom: '1rem' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                                        <h4 style={{ margin: 0, color: badgeColor, fontSize: '0.9rem' }}>{title} ({fuelType})</h4>
+                                <div key={fuelType} style={{ 
+                                    border: `1px solid #e2e8f0`, 
+                                    borderLeft: `5px solid ${sectionBorderColor}`, 
+                                    borderRadius: '8px', 
+                                    padding: '1.25rem', 
+                                    marginBottom: '1.5rem',
+                                    background: '#f8fafc' 
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
+                                        <h4 style={{ margin: 0, color: badgeColor, fontSize: '1rem', fontWeight: 'bold' }}>{sectionTitle}</h4>
                                         <span style={{ background: badgeBg, color: badgeColor, padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                                            Rate: ₹{fuelType === 'Petrol' ? prices?.petrol || 0 : prices?.diesel || 0}/L
+                                            Rate: ₹{isPetrol ? prices?.petrol || 0 : prices?.diesel || 0}/L
                                         </span>
                                     </div>
+                                    
                                     <div className="section-grid">
-                                        <div>
-                                            <h5 style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Readings</h5>
-                                            <InputRow label="Opening Reading" val={entry.opening} setVal={v => updateEntry(pump.id, slotKey, 'opening', v)} />
-                                            <InputRow label="Closing Reading" val={entry.closing} setVal={v => updateEntry(pump.id, slotKey, 'closing', v)} />
-                                            <InputRow label="Test Sample (L)" val={entry.test} setVal={v => updateEntry(pump.id, slotKey, 'test', v)} />
-
-                                            <div style={{ marginTop: '0.5rem', fontWeight: 'bold', textAlign: 'right', color: badgeColor, fontSize: '0.85rem' }}>
-                                                Litres Sold: {metrics.litres.toFixed(2)} L
+                                        {/* Readings Column */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                            {/* Nozzle 1 */}
+                                            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.75rem' }}>
+                                                <h5 style={{ margin: '0 0 0.5rem 0', fontSize: '0.8rem', color: '#475569', fontWeight: '600' }}>{isPetrol ? 'Petrol 1 Nozzle' : 'Diesel 1 Nozzle'}</h5>
+                                                <InputRow label="Opening Reading" val={entry1.opening} setVal={v => updateEntry(pump.id, key1, 'opening', v)} />
+                                                <InputRow label="Closing Reading" val={entry1.closing} setVal={v => updateEntry(pump.id, key1, 'closing', v)} />
+                                                <InputRow label="Test Sample (L)" val={entry1.test} setVal={v => updateEntry(pump.id, key1, 'test', v)} />
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '6px', color: '#64748b' }}>
+                                                    <span>Litres Sold: <b>{m1.litres.toFixed(2)} L</b></span>
+                                                    <span>Expected: <b>₹{m1.saleAmount.toFixed(2)}</b></span>
+                                                </div>
                                             </div>
-                                            <div style={{ marginTop: '0.2rem', fontWeight: 'bold', textAlign: 'right', color: '#1e293b', fontSize: '0.9rem' }}>
-                                                Expected Amt: ₹ {metrics.saleAmount.toFixed(2)}
+                                            
+                                            {/* Nozzle 2 */}
+                                            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.75rem' }}>
+                                                <h5 style={{ margin: '0 0 0.5rem 0', fontSize: '0.8rem', color: '#475569', fontWeight: '600' }}>{isPetrol ? 'Petrol 2 Nozzle' : 'Diesel 2 Nozzle'}</h5>
+                                                <InputRow label="Opening Reading" val={entry2.opening} setVal={v => updateEntry(pump.id, key2, 'opening', v)} />
+                                                <InputRow label="Closing Reading" val={entry2.closing} setVal={v => updateEntry(pump.id, key2, 'closing', v)} />
+                                                <InputRow label="Test Sample (L)" val={entry2.test} setVal={v => updateEntry(pump.id, key2, 'test', v)} />
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '6px', color: '#64748b' }}>
+                                                    <span>Litres Sold: <b>{m2.litres.toFixed(2)} L</b></span>
+                                                    <span>Expected: <b>₹{m2.saleAmount.toFixed(2)}</b></span>
+                                                </div>
+                                            </div>
+
+                                            {/* Combined Expected Summary */}
+                                            <div style={{ padding: '0.5rem', background: '#e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '500', color: '#334155' }}>
+                                                    <span>Total Litres Sold:</span>
+                                                    <span>{totalLitres.toFixed(2)} L</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#0f172a', fontSize: '0.9rem', marginTop: '4px' }}>
+                                                    <span>Total Expected Amt:</span>
+                                                    <span>₹ {totalExpected.toFixed(2)}</span>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div>
-                                            <h5 style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Collections</h5>
-                                            <InputRow label="Cash" val={entry.cash} setVal={v => updateEntry(pump.id, slotKey, 'cash', v)} />
-                                            <InputRow label="UPI" val={entry.upi} setVal={v => updateEntry(pump.id, slotKey, 'upi', v)} />
-                                            <InputRow label="Card" val={entry.card} setVal={v => updateEntry(pump.id, slotKey, 'card', v)} />
-                                            <InputRow label="Credit" val={entry.credit} setVal={v => updateEntry(pump.id, slotKey, 'credit', v)} />
-                                            <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                                                <span>Diff (Shortage):</span>
-                                                <span style={{ fontWeight: 'bold', color: metrics.shortageExcess > 0 ? '#ef4444' : '#10b981' }}>
-                                                    ₹ {metrics.shortageExcess.toFixed(2)}
-                                                </span>
+                                        
+                                        {/* Payments Column */}
+                                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                            <div>
+                                                <h5 style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem', fontWeight: 'bold' }}>Combined Collections</h5>
+                                                <InputRow label="Cash" val={payments.cash} setVal={v => updateEntry(pump.id, payKey, 'cash', v)} />
+                                                <InputRow label="UPI" val={payments.upi} setVal={v => updateEntry(pump.id, payKey, 'upi', v)} />
+                                                <InputRow label="Card" val={payments.card} setVal={v => updateEntry(pump.id, payKey, 'card', v)} />
+                                            </div>
+
+                                            <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
+                                                    <span>Total Collections:</span>
+                                                    <span style={{ fontWeight: '600', color: '#334155' }}>₹ {payMetrics.totalCollections.toFixed(2)}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', alignItems: 'center' }}>
+                                                    <span>Difference:</span>
+                                                    <span style={{ fontWeight: 'bold', color: payMetrics.shortageExcess === 0 ? '#10b981' : '#ef4444' }}>
+                                                        ₹ {payMetrics.shortageExcess.toFixed(2)}
+                                                    </span>
+                                                </div>
+                                                {showMismatchWarning && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', fontSize: '0.75rem', marginTop: '8px', background: '#fffbeb', padding: '6px 8px', borderRadius: '4px', border: '1px solid #fef3c7' }}>
+                                                        <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                                                        <span>Collections mismatch by ₹{Math.abs(payMetrics.shortageExcess).toFixed(2)}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -559,10 +744,8 @@ const ShiftSales = () => {
                         return (
                             <div key={pump.id} className="card" style={{ borderLeft: '5px solid #0284c7' }}>
                                 <h3 style={{ color: '#0369a1', marginBottom: '1rem', fontSize: '1.2rem' }}>{pump.name}</h3>
-                                {renderSlotCard('petrol1', 'Petrol Entry 1', 'Petrol')}
-                                {renderSlotCard('petrol2', 'Petrol Entry 2', 'Petrol')}
-                                {renderSlotCard('diesel1', 'Diesel Entry 1', 'Diesel')}
-                                {renderSlotCard('diesel2', 'Diesel Entry 2', 'Diesel')}
+                                {renderFuelSection('Petrol')}
+                                {renderFuelSection('Diesel')}
                             </div>
                         );
                     })}
